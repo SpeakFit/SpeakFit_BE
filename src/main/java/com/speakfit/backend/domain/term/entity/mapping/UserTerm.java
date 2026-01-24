@@ -1,7 +1,7 @@
 package com.speakfit.backend.domain.term.entity.mapping;
 
 import com.speakfit.backend.domain.term.entity.Term;
-import com.speakfit.backend.domain.users.entity.User;
+import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;

@@ -2,7 +2,7 @@ package com.speakfit.backend.domain.auth.dto.req;
 
 
 import com.speakfit.backend.domain.term.enums.TermType;
-import com.speakfit.backend.domain.users.enums.Gender;
+import com.speakfit.backend.domain.user.enums.Gender;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.Getter;

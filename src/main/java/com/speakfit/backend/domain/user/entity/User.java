@@ -1,8 +1,8 @@
-package com.speakfit.backend.domain.users.entity;
+package com.speakfit.backend.domain.user.entity;
 
 import com.speakfit.backend.domain.style.entity.SpeechStyle;
-import com.speakfit.backend.domain.users.enums.Dialect;
-import com.speakfit.backend.domain.users.enums.Gender;
+import com.speakfit.backend.domain.user.enums.Dialect;
+import com.speakfit.backend.domain.user.enums.Gender;
 import com.speakfit.backend.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;

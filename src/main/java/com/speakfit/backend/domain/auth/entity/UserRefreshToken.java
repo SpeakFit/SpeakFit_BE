@@ -1,6 +1,6 @@
 package com.speakfit.backend.domain.auth.entity;
 
-import com.speakfit.backend.domain.users.entity.User;
+import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
