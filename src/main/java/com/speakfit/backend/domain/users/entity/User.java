@@ -17,12 +17,12 @@ import java.time.LocalDate;
 @Builder
 @Table(name = "users",
         uniqueConstraints = {
-                @UniqueConstraint(name = "uk_users_users_id", columnNames = "users_id"),
-                @UniqueConstraint(name = "uk_users_phone", columnNames = "phone_num"),
-                @UniqueConstraint(name = "uk_users_nickname", columnNames = "nickname")
+                @UniqueConstraint(name = "uk_user_users_id", columnNames = "user_id"),
+                @UniqueConstraint(name = "uk_user_phone", columnNames = "phone_num"),
+                @UniqueConstraint(name = "uk_user_nickname", columnNames = "nickname")
         }
 )
-public class Users extends BaseEntity {
+public class User extends BaseEntity {
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -31,8 +31,8 @@ public class Users extends BaseEntity {
     @JoinColumn(name = "style_id", nullable = false)
     private SpeechStyle style;
 
-    @Column(name = "users_id", nullable = false, length = 50)
-    private String usersId;
+    @Column(name = "user_id", nullable = false, length = 50)
+    private String userId;
 
     @Column(nullable = false, length = 255)
     private String password;

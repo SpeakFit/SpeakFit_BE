@@ -1,6 +1,6 @@
 package com.speakfit.backend.domain.auth.entity;
 
-import com.speakfit.backend.domain.users.entity.Users;
+import com.speakfit.backend.domain.users.entity.User;
 import com.speakfit.backend.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
@@ -15,14 +15,14 @@ import java.time.Instant;
 @Table(name = "user_refresh_token",
         uniqueConstraints = @UniqueConstraint(name = "uk_rt_user", columnNames = "user_id")
 )
-public class UsersRefreshToken extends BaseEntity {
+public class UserRefreshToken extends BaseEntity {
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
-    private Users user;
+    private User user;
 
     @Column(nullable = false, length = 512)
     private String token;
