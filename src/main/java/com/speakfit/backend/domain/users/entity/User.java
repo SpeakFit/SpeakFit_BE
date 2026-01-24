@@ -17,7 +17,7 @@ import java.time.LocalDate;
 @Builder
 @Table(name = "users",
         uniqueConstraints = {
-                @UniqueConstraint(name = "uk_user_users_id", columnNames = "user_id"),
+                @UniqueConstraint(name = "uk_user_users_id", columnNames = "users_id"),
                 @UniqueConstraint(name = "uk_user_phone", columnNames = "phone_num"),
                 @UniqueConstraint(name = "uk_user_nickname", columnNames = "nickname")
         }
@@ -31,8 +31,8 @@ public class User extends BaseEntity {
     @JoinColumn(name = "style_id", nullable = false)
     private SpeechStyle style;
 
-    @Column(name = "user_id", nullable = false, length = 50)
-    private String userId;
+    @Column(name = "users_id", nullable = false, length = 50)
+    private String usersId;
 
     @Column(nullable = false, length = 255)
     private String password;
