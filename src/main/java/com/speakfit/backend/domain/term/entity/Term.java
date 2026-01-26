@@ -35,4 +35,5 @@ public class Term extends BaseEntity {
 
     @Column(nullable = false)
     private boolean required;
+
 }
