@@ -39,4 +39,5 @@ public class ApiResponse<T> {
                 .result(result)
                 .build();
     }
+
 }
