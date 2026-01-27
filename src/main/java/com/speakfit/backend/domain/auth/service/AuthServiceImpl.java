@@ -2,6 +2,7 @@ package com.speakfit.backend.domain.auth.service;
 
 import com.speakfit.backend.domain.auth.dto.req.SignUpReq;
 import com.speakfit.backend.domain.auth.dto.res.SignUpRes;
+import com.speakfit.backend.domain.auth.exception.AuthErrorCode;
 import com.speakfit.backend.domain.style.entity.SpeechStyle;
 import com.speakfit.backend.domain.style.repository.SpeechStyleRepository;
 import com.speakfit.backend.domain.term.entity.Term;
@@ -11,7 +12,9 @@ import com.speakfit.backend.domain.term.repository.TermRepository;
 import com.speakfit.backend.domain.term.repository.UserTermRepository;
 import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.domain.user.repository.UserRepository;
+import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,7 +27,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Transactional
-public class AuthServiceImpl implements AuthService{
+public class AuthServiceImpl implements AuthService {
 
     private final UserRepository userRepository;
     private final SpeechStyleRepository speechStyleRepository;
@@ -33,26 +36,13 @@ public class AuthServiceImpl implements AuthService{
     private final PasswordEncoder passwordEncoder;
 
     @Override
-    public SignUpRes signUp(SignUpReq.Request req){
+    public SignUpRes signUp(SignUpReq.Request req) {
 
-        // 1. 중복 체크
-        if (userRepository.existsByUsersId(req.getUsersId())) {
-            throw new IllegalArgumentException("이미 사용 중인 아이디입니다.");
-        }
-
-        if (userRepository.existsByNickname(req.getNickname())) {
-            throw new IllegalArgumentException("이미 사용 중인 닉네임입니다.");
-        }
-
-        if (userRepository.existsByPhoneNum(req.getPhoneNum())) {
-            throw new IllegalArgumentException("이미 사용 중인 전화번호입니다.");
-        }
-
-        // 2. 스타일 조회
+        // 1️⃣ 스타일 조회
         SpeechStyle style = speechStyleRepository.findById(req.getStyleId())
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 styleId"));
+                .orElseThrow(() -> new CustomException(AuthErrorCode.STYLE_NOT_FOUND));
 
-        // 3. User 생성
+        // 2️⃣ User 생성
         User user = User.builder()
                 .usersId(req.getUsersId())
                 .password(passwordEncoder.encode(req.getPassword()))
@@ -64,9 +54,26 @@ public class AuthServiceImpl implements AuthService{
                 .style(style)
                 .build();
 
-        User savedUser = userRepository.save(user);
+        User savedUser;
+        try {
+            savedUser = userRepository.save(user);
+        } catch (DataIntegrityViolationException e) {
+            String msg = e.getMostSpecificCause().getMessage();
 
-        // 4. 약관 동의 처리
+            if (msg.contains("uk_user_users_id")) {
+                throw new CustomException(AuthErrorCode.DUPLICATE_USERS_ID);
+            }
+            if (msg.contains("uk_user_nickname")) {
+                throw new CustomException(AuthErrorCode.DUPLICATE_NICKNAME);
+            }
+            if (msg.contains("uk_user_phone")) {
+                throw new CustomException(AuthErrorCode.DUPLICATE_PHONE);
+            }
+
+            throw e; // 예상 못 한 DB 에러는 그대로
+        }
+
+        // 3️⃣ 약관 동의 처리
         Map<TermType, Boolean> agreedMap =
                 req.getTerms().stream()
                         .collect(Collectors.toMap(
@@ -74,15 +81,14 @@ public class AuthServiceImpl implements AuthService{
                                 SignUpReq.TermAgreement::getAgreed,
                                 (a, b) -> b
                         ));
+
         List<Term> allTerms = termRepository.findAll();
 
-        for(Term term : allTerms){
-            if(term.isRequired()){
+        for (Term term : allTerms) {
+            if (term.isRequired()) {
                 Boolean agreed = agreedMap.get(term.getTermType());
-                if(agreed == null || !agreed){
-                    throw new IllegalArgumentException(
-                            "필수 약관 미동의 " + term.getTermType()
-                    );
+                if (agreed == null || !agreed) {
+                    throw new CustomException(AuthErrorCode.REQUIRED_TERM_NOT_AGREED);
                 }
             }
         }
@@ -91,16 +97,14 @@ public class AuthServiceImpl implements AuthService{
                 .map(term -> UserTerm.builder()
                         .user(savedUser)
                         .term(term)
-                        .agreed(Boolean.TRUE.equals(
-                                agreedMap.get(term.getTermType())
-                        ))
+                        .agreed(Boolean.TRUE.equals(agreedMap.get(term.getTermType())))
                         .build()
                 )
                 .toList();
 
         userTermRepository.saveAll(userTerms);
 
-        // 5. 응답
+        // 4️⃣ 응답
         return SignUpRes.builder()
                 .userId(savedUser.getId())
                 .usersId(savedUser.getUsersId())
