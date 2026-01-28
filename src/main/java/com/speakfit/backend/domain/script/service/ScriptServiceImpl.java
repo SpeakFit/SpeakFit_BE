@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 @Service
 @RequiredArgsConstructor
-@Transactional
+@Transactional(readOnly = true)
 public class ScriptServiceImpl implements ScriptService {
 
     private final ScriptRepository scriptRepository;

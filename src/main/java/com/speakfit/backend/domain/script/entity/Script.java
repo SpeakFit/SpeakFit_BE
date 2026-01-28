@@ -6,7 +6,8 @@ import jakarta.persistence.*;
 import lombok.*;
 
 @Entity
-@Table(name = "script") // ERD의 테이블명과 일치
+@Table(name = "script",indexes = {
+        @Index(name = "idx_script_user_id", columnList = "user_id")}) // ERD의 테이블명과 일치
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
