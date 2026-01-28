@@ -20,7 +20,12 @@ public class ScriptController {
 
     private final ScriptService scriptService;
 
-    // 발표 대본 추가
+    /**
+     * Create a new presentation script.
+     *
+     * @param request the request payload containing fields required to create the presentation script
+     * @return an ApiResponse wrapping an AddScriptRes with the created script details and a CREATED success code
+     */
     @PostMapping
     public ApiResponse<AddScriptRes> addScript(@RequestBody @Valid AddScriptReq.Request request) {
         // 성공 코드 : CREATED(201)

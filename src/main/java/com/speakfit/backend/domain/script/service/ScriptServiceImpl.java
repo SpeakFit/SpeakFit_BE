@@ -18,6 +18,13 @@ public class ScriptServiceImpl implements ScriptService {
     private final ScriptRepository scriptRepository;
     private final UserRepository userRepository;
 
+    /**
+     * Create and persist a new Script from the given request and return its response DTO.
+     *
+     * @param req request containing the title and content for the new script
+     * @return an AddScriptRes containing the persisted script's id, title, content, and creation timestamp
+     * @throws RuntimeException if the temporary user with ID 1 is not found in the database
+     */
     @Override
     @Transactional
     public AddScriptRes addScript(AddScriptReq.Request req){
