@@ -3,15 +3,15 @@ package com.speakfit.backend.domain.script.controller;
 
 import com.speakfit.backend.domain.script.dto.req.AddScriptReq;
 import com.speakfit.backend.domain.script.dto.res.AddScriptRes;
+import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
 import com.speakfit.backend.domain.script.service.ScriptService;
 import com.speakfit.backend.global.apiPayload.response.ApiResponse;
 import com.speakfit.backend.global.apiPayload.response.code.SuccessCode;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
@@ -25,5 +25,11 @@ public class ScriptController {
     public ApiResponse<AddScriptRes> addScript(@RequestBody @Valid AddScriptReq.Request request) {
         // 성공 코드 : CREATED(201)
         return ApiResponse.onSuccess(SuccessCode.CREATED, scriptService.addScript(request));
+    }
+
+    // 발표 대본 목록 조회
+    @GetMapping
+    public ApiResponse<List<GetScriptListRes>> getScripts(){
+        return ApiResponse.onSuccess(SuccessCode.OK,scriptService.getScripts());
     }
 }
