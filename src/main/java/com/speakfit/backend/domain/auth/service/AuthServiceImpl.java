@@ -136,7 +136,7 @@ public class AuthServiceImpl implements AuthService {
         }
 
         // 토큰 생성
-        String accessToken = jwtProvider.createAccessToken(user.getId());
+        String accessToken = jwtProvider.createAccessToken(user.getId(), user.getUsersId());
         String refreshToken = jwtProvider.createRefreshToken(user.getId());
         Instant refreshExpiresAt = jwtProvider.getRefreshTokenExpiresAt();
 

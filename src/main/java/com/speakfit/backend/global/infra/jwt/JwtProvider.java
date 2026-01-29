@@ -32,8 +32,8 @@ public class JwtProvider {
     }
 
     // 토큰 생성
-    public String createAccessToken(Long userId) {
-        return createToken(userId, accessExpSeconds);
+    public String createAccessToken(Long userId, String usersId) {
+        return createToken(userId, usersId, accessExpSeconds);
     }
 
     public String createRefreshToken(Long userId) {
@@ -45,12 +45,19 @@ public class JwtProvider {
         return Instant.now().plusSeconds(refreshExpSeconds);
     }
 
-    private String createToken(Long userId, long expSeconds) {
+    private String createToken(Long userId, String usersId, long expSeconds) {
         Instant now = Instant.now();
-        return Jwts.builder()
-                .setSubject(String.valueOf(userId))
-                .setIssuedAt(Date.from(now))
-                .setExpiration(Date.from(now.plusSeconds(expSeconds)))
+
+        var builder = Jwts.builder()
+                .subject(String.valueOf(userId))
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plusSeconds(expSeconds)));
+
+        if (usersId != null) {
+            builder.claim("usersId", usersId);
+        }
+
+        return builder
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }
@@ -58,6 +65,12 @@ public class JwtProvider {
     public Long getUserId(String token) {
         Claims claims = parseClaims(token);
         return Long.valueOf(claims.getSubject());
+    }
+
+    public String getUsersId(String token){
+        Claims claims = parseClaims(token);
+        Object v = claims.get("usersId");
+        return v == null ? null : String.valueOf(v);
     }
 
     public boolean validate(String token) {
