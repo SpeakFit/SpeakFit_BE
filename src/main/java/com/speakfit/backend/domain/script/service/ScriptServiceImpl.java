@@ -80,13 +80,12 @@ public class ScriptServiceImpl implements ScriptService {
         // 1. DB에서 대본 찾기
         Script script=scriptRepository.findById(scriptId)
                 .orElseThrow(()-> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
-        // 2. TODO:사용자 권한 체크 로직 (나중에 jwt 연동 시 주석 해제)
-        /*
-        Long currentUserId=SecurityUtil.getCurrentUserId();// 로그인한 유저ID 가져오기
-        if(!.script.getUser().getId().equals(currentUserId)) {
-            throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED)
+        // 2. 사용자 권한 체크 로직
+        Long currentUserId=1L;// jwt구현전이라 임시로 1번사용자의 대본만 확인하도록 설정함.
+        if(!script.getUser().getId().equals(currentUserId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
             }
-         */
+
 
         // 3. Entity -> DTO 변환 및 반환
         return GetScriptDetailRes.builder()
