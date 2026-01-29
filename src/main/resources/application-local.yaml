@@ -21,3 +21,8 @@ logging:
   level:
     org.hibernate.SQL: debug
     org.hibernate.orm.jdbc.bind: trace
+
+jwt:
+  secret: ${JWT_SECRET}
+  access-token-exp-seconds: ${JWT_ACCESS_EXP_SECONDS:3600}
+  refresh-token-exp-seconds: ${JWT_REFRESH_EXP_SECONDS:1209600}
