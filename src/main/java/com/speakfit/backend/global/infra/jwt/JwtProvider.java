@@ -37,7 +37,7 @@ public class JwtProvider {
     }
 
     public String createRefreshToken(Long userId) {
-        return createToken(userId, refreshExpSeconds);
+        return createToken(userId, null, refreshExpSeconds);
     }
 
     // 토큰 발급
