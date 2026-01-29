@@ -2,6 +2,7 @@ package com.speakfit.backend.domain.script.service;
 
 import com.speakfit.backend.domain.script.dto.req.AddScriptReq;
 import com.speakfit.backend.domain.script.dto.res.AddScriptRes;
+import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
 import com.speakfit.backend.domain.script.entity.Script;
@@ -93,6 +94,29 @@ public class ScriptServiceImpl implements ScriptService {
                 .title(script.getTitle())
                 .content(script.getContent())
                 .createdAt(script.getCreatedAt())
+                .build();
+    }
+
+    // 발표 대본 삭제 기능 서비스 구현
+    @Override
+    @Transactional
+    public DeleteScriptRes deleteScript(Long scriptId) {
+        // 1. DB에서 대본 찾기
+        Script script = scriptRepository.findById(scriptId)
+                .orElseThrow(()->new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
+
+        // 2. 사용자 권한 체크 (JWT 구현 전이라 임시 1번 유저)
+        Long currentUserId =1L;
+        if(!script.getUser().getId().equals(currentUserId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
+        }
+
+        // 3. 삭제 처리
+        scriptRepository.delete(script);
+
+        // 4. 삭제된 ID 반환
+        return DeleteScriptRes.builder()
+                .id(scriptId)
                 .build();
     }
 }
