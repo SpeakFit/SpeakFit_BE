@@ -1,30 +1,40 @@
 package com.speakfit.backend.global.config;
 
+import io.swagger.v3.oas.models.Components;
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.security.SecurityRequirement;
+import io.swagger.v3.oas.models.security.SecurityScheme;
+import io.swagger.v3.oas.models.servers.Server;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
 public class SwaggerConfig {
+
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        http
-                .csrf(csrf -> csrf.disable())
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/swagger-ui.html"
-                        ).permitAll()
+    public OpenAPI swagger() {
+        Info info = new Info()
+                .title("SpeakFit API 명세서")
+                .description("SpeakFit SpringBoot 서버 API 명세서입니다.")
+                .version("0.0.1");
 
-                        // (지금 만든 헬스체크도 열어두고 싶으면)
-                        .requestMatchers("/health").permitAll()
+        String securitySchemeName = "JWT TOKEN";
 
-                        // 나머지는 일단 전부 허용(초기 개발용)
-                        .anyRequest().permitAll()
-                );
+        SecurityRequirement securityRequirement =
+                new SecurityRequirement().addList(securitySchemeName);
 
-        return http.build();
+        Components components = new Components()
+                .addSecuritySchemes(securitySchemeName, new SecurityScheme()
+                        .name("Authorization")
+                        .type(SecurityScheme.Type.HTTP)
+                        .scheme("bearer")
+                        .bearerFormat("JWT"));
+
+        return new OpenAPI()
+                .info(info)
+                .addServersItem(new Server().url("/"))
+                .addSecurityItem(securityRequirement)
+                .components(components);
     }
 }

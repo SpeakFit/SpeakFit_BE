@@ -34,10 +34,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // PUBLIC
                         .requestMatchers(
-                                "/api/auth/login",
-                                "/api/auth/signup",
-                                "/api/auth/reissue"
+                                "/swagger-ui/**",
+                                "/v3/api-docs/**",
+                                "/swagger-ui.html"
                         ).permitAll()
+                        .requestMatchers("/api/auth/**").permitAll()
                         // PRIVATE
                         .requestMatchers("/api/practices",
                                 "/api/scripts",
