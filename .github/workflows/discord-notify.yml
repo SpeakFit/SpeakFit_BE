@@ -1,0 +1,26 @@
+name: Discord Notify
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send message to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          REF: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          MSG: ${{ github.event.head_commit.message }}
+          URL: ${{ github.event.head_commit.url }}
+        run: |
+          payload=$(jq -n \
+            --arg content "📌 **$REPO**\n👤 $ACTOR\n🌿 $REF\n🔨 ${SHA:0:7}\n📝 $MSG\n🔗 $URL" \
+            '{content: $content}')
+          curl -s -H "Content-Type: application/json" -d "$payload" "$WEBHOOK"
