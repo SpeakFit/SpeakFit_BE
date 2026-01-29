@@ -12,26 +12,29 @@ import java.time.Instant;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder
-@Table(name = "user_refresh_token",
-        uniqueConstraints = @UniqueConstraint(name = "uk_rt_user", columnNames = "user_id")
+@Table(name = "refresh_tokens",
+        uniqueConstraints = @UniqueConstraint(name = "uk_refresh_token_user", columnNames = "user_id")
 )
-public class UserRefreshToken extends BaseEntity {
+public class RefreshToken extends BaseEntity {
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @OneToOne(fetch = FetchType.LAZY)
+    @OneToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @Column(nullable = false, length = 512)
+    @Column(nullable = false, length = 2000)
     private String token;
 
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
-    public void rotate(String newToken, Instant newExpiresAt) {
+    public void updateToken(String newToken, Instant newExpiresAt) {
         this.token = newToken;
         this.expiresAt = newExpiresAt;
+    }
+    public boolean isExpired(){
+        return expiresAt.isBefore(Instant.now());
     }
 }
