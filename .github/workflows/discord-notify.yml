@@ -1,10 +1,10 @@
 name: Discord Notify
 
 on:
-  push:
-    branches: ["main"]
+  issues:
+    types: [opened, closed, reopened]
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, closed, reopened]
 
 jobs:
   notify:
@@ -13,14 +13,42 @@ jobs:
       - name: Send message to Discord
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
           ACTOR: ${{ github.actor }}
-          REF: ${{ github.ref_name }}
-          SHA: ${{ github.sha }}
-          MSG: ${{ github.event.head_commit.message }}
-          URL: ${{ github.event.head_commit.url }}
+          REPO: ${{ github.repository }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_ACTION: ${{ github.event.action }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_ACTION: ${{ github.event.action }}
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD: ${{ github.event.pull_request.head.ref }}
         run: |
-          payload=$(jq -n \
-            --arg content "📌 **$REPO**\n👤 $ACTOR\n🌿 $REF\n🔨 ${SHA:0:7}\n📝 $MSG\n🔗 $URL" \
-            '{content: $content}')
+          set -e
+
+          if [ "$EVENT_NAME" = "issues" ]; then
+            content=$(cat <<EOF
+          🧾 **Issue ${ISSUE_ACTION}**
+          📌 **${REPO}** #${ISSUE_NUMBER}
+          📝 ${ISSUE_TITLE}
+          👤 ${ACTOR}
+          🔗 ${ISSUE_URL}
+          EOF
+            )
+          else
+            content=$(cat <<EOF
+          🔁 **PR ${PR_ACTION}**
+          📌 **${REPO}** #${PR_NUMBER}
+          📝 ${PR_TITLE}
+          🌿 ${PR_HEAD} → ${PR_BASE}
+          👤 ${ACTOR}
+          🔗 ${PR_URL}
+          EOF
+            )
+          fi
+
+          payload=$(jq -n --arg content "$content" '{content: $content}')
           curl -s -H "Content-Type: application/json" -d "$payload" "$WEBHOOK"
