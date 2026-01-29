@@ -19,6 +19,7 @@ public class PracticeController {
 
     private final PracticeService practiceService;
 
+    // 발표 연습 시작
     @PostMapping
     public ApiResponse<StartPracticeRes> startPractice(@RequestBody @Valid StartPracticeReq.Request request) {
         return ApiResponse.onSuccess(SuccessCode.CREATED, practiceService.startPractice(request));

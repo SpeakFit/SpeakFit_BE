@@ -3,6 +3,7 @@ package com.speakfit.backend.domain.practice.enums;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
+// 발표 연습 기록 상태 enum
 @Getter
 @RequiredArgsConstructor
 public enum PracticeStatus {

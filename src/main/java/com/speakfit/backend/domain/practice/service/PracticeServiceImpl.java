@@ -24,6 +24,8 @@ public class PracticeServiceImpl implements PracticeService {
     private final ScriptRepository scriptRepository;
     private final UserRepository userRepository;
 
+    // 발표 연습 시작 서비스 구현
+
     @Override
     @Transactional
     public StartPracticeRes startPractice(StartPracticeReq.Request req) {
