@@ -3,6 +3,7 @@ package com.speakfit.backend.domain.script.controller;
 
 import com.speakfit.backend.domain.script.dto.req.AddScriptReq;
 import com.speakfit.backend.domain.script.dto.res.AddScriptRes;
+import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
 import com.speakfit.backend.domain.script.service.ScriptService;
@@ -39,5 +40,11 @@ public class ScriptController {
     @GetMapping("/{scriptId}")
     public ApiResponse<GetScriptDetailRes> getScript(@PathVariable @Positive Long scriptId) {
         return ApiResponse.onSuccess(SuccessCode.OK,scriptService.getScript(scriptId));
+    }
+
+    // 발표 대본 삭제
+    @DeleteMapping("/{scriptId}")
+    public ApiResponse<DeleteScriptRes> deleteScript(@PathVariable @Positive Long scriptId) {
+        return ApiResponse.onSuccess(SuccessCode.OK,scriptService.deleteScript(scriptId));
     }
 }
