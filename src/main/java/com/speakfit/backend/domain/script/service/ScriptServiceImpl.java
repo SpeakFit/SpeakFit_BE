@@ -2,6 +2,7 @@ package com.speakfit.backend.domain.script.service;
 
 import com.speakfit.backend.domain.script.dto.req.AddScriptReq;
 import com.speakfit.backend.domain.script.dto.res.AddScriptRes;
+import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
 import com.speakfit.backend.domain.script.entity.Script;
 import com.speakfit.backend.domain.script.exception.ScriptErrorCode;
@@ -71,5 +72,28 @@ public class ScriptServiceImpl implements ScriptService {
                         .createdAt(script.getCreatedAt())
                         .build())
                 .toList();
+    }
+
+    // 발표 대본 상세 조회 기능 서비스 구현
+    @Override
+    public GetScriptDetailRes getScript(Long scriptId) {
+        // 1. DB에서 대본 찾기
+        Script script=scriptRepository.findById(scriptId)
+                .orElseThrow(()-> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
+        // 2. 사용자 권한 체크 로직 (나중에 jwt 연동 시 주석 해제)
+        /*
+        Long currentUserId=SecurityUtil.getCurrentUserId();// 로그인한 유저ID 가져오기
+        if(!.script.getUser().getId().equals(currentUserId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED)
+            }
+         */
+
+        // 3. Entity -> DTO 변환 및 반환
+        return GetScriptDetailRes.builder()
+                .id(script.getId())
+                .title(script.getTitle())
+                .content(script.getContent())
+                .createdAt(script.getCreatedAt())
+                .build();
     }
 }
