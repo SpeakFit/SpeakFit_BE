@@ -1,5 +1,6 @@
 package com.speakfit.backend.domain.auth.dto.res;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.speakfit.backend.domain.user.entity.User;
 import lombok.Builder;
 import lombok.Getter;
@@ -12,6 +13,12 @@ public class LoginRes {
 
     private String accessToken;
     private UserInfo user;
+
+    @JsonIgnore
+    private String refreshToken;
+
+    @JsonIgnore
+    private long refreshTokenMaxAgeSeconds;
 
     @Getter
     @Builder
