@@ -1,16 +1,19 @@
 package com.speakfit.backend.global.util;
 
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
 
 @Component
 public class CookieUtil {
 
+    @Value("${app.cookie.secure}")
+    private boolean secure;
+
     public void addRefreshTokenCookie(HttpServletResponse response,
                                       String refreshToken,
-                                      long maxAgeSeconds,
-                                      boolean secure){
+                                      long maxAgeSeconds){
 
         ResponseCookie cookie = ResponseCookie.from("refreshToken", refreshToken)
                 .httpOnly(true)

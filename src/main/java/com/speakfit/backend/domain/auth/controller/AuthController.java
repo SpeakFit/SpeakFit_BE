@@ -36,8 +36,7 @@ public class AuthController {
         cookieUtil.addRefreshTokenCookie(
                 response,
                 loginRes.getRefreshToken(),
-                loginRes.getRefreshTokenMaxAgeSeconds(),
-                false
+                loginRes.getRefreshTokenMaxAgeSeconds()
         );
 
         return ApiResponse.onSuccess(SuccessCode.OK, loginRes);
