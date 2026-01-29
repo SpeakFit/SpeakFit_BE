@@ -13,7 +13,7 @@ public class CookieUtil {
 
     public void addRefreshTokenCookie(HttpServletResponse response,
                                       String refreshToken,
-                                      long maxAgeSeconds){
+                                      long maxAgeSeconds) {
 
         ResponseCookie cookie = ResponseCookie.from("refreshToken", refreshToken)
                 .httpOnly(true)
@@ -22,13 +22,15 @@ public class CookieUtil {
                 .sameSite("Lax")
                 .maxAge(maxAgeSeconds)
                 .build();
+
         response.addHeader("Set-Cookie", cookie.toString());
     }
 
-    public void clearRefreshTokenCookie(HttpServletResponse response, boolean secure){
+    public void clearRefreshTokenCookie(HttpServletResponse response) {
+
         ResponseCookie cookie = ResponseCookie.from("refreshToken", "")
                 .httpOnly(true)
-                .secure(secure)
+                .secure(secure)   // ✅ 동일한 값
                 .path("/api/auth")
                 .sameSite("Lax")
                 .maxAge(0)
