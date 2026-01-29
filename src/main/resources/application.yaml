@@ -8,3 +8,7 @@ spring:
 logging:
   level:
     root: info
+
+app:
+  cookie:
+    secure: false

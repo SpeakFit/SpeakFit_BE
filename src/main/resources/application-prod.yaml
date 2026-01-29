@@ -1,0 +1,9 @@
+# application-prod.yaml
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+app:
+  cookie:
+    secure: true

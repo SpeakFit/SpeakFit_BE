@@ -1,8 +1,12 @@
 package com.speakfit.backend.domain.auth.service;
 
+import com.speakfit.backend.domain.auth.dto.req.LoginReq;
 import com.speakfit.backend.domain.auth.dto.req.SignUpReq;
+import com.speakfit.backend.domain.auth.dto.res.LoginRes;
 import com.speakfit.backend.domain.auth.dto.res.SignUpRes;
+import com.speakfit.backend.domain.auth.entity.RefreshToken;
 import com.speakfit.backend.domain.auth.exception.AuthErrorCode;
+import com.speakfit.backend.domain.auth.repository.RefreshTokenRepository;
 import com.speakfit.backend.domain.style.entity.SpeechStyle;
 import com.speakfit.backend.domain.style.repository.SpeechStyleRepository;
 import com.speakfit.backend.domain.term.entity.Term;
@@ -13,12 +17,16 @@ import com.speakfit.backend.domain.term.repository.UserTermRepository;
 import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.domain.user.repository.UserRepository;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
+import com.speakfit.backend.global.infra.jwt.JwtProvider;
+import com.speakfit.backend.global.util.CookieUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -33,8 +41,13 @@ public class AuthServiceImpl implements AuthService {
     private final SpeechStyleRepository speechStyleRepository;
     private final TermRepository termRepository;
     private final UserTermRepository userTermRepository;
-    private final PasswordEncoder passwordEncoder;
+    private final RefreshTokenRepository refreshTokenRepository;
 
+    private final PasswordEncoder passwordEncoder;
+    private final JwtProvider jwtProvider;
+    private final CookieUtil cookieUtil;
+
+    /** 회원가입 **/
     @Override
     public SignUpRes signUp(SignUpReq.Request req) {
 
@@ -109,6 +122,42 @@ public class AuthServiceImpl implements AuthService {
                 .userId(savedUser.getId())
                 .usersId(savedUser.getUsersId())
                 .nickname(savedUser.getNickname())
+                .build();
+    }
+    /** 로그인 **/
+    @Override
+    public LoginRes login(LoginReq.Request req){
+
+        User user = userRepository.findByUsersId(req.getUserId())
+                .orElseThrow(() -> new CustomException(AuthErrorCode.LOGIN_FAILED));
+
+        if(!passwordEncoder.matches(req.getPassword(), user.getPassword())){
+            throw new CustomException(AuthErrorCode.LOGIN_FAILED);
+        }
+
+        // 토큰 생성
+        String accessToken = jwtProvider.createAccessToken(user.getId(), user.getUsersId());
+        String refreshToken = jwtProvider.createRefreshToken(user.getId());
+        Instant refreshExpiresAt = jwtProvider.getRefreshTokenExpiresAt();
+
+        // refreshToken DB 저장
+        RefreshToken rt = refreshTokenRepository.findByUser(user)
+                .orElseGet(() -> RefreshToken.builder()
+                        .user(user)
+                        .token(refreshToken)
+                        .expiresAt(refreshExpiresAt)
+                        .build());
+
+        rt.updateToken(refreshToken, refreshExpiresAt);
+        refreshTokenRepository.save(rt);
+
+        return LoginRes.builder()
+                .accessToken(accessToken)
+                .user(LoginRes.UserInfo.from(user))
+                .refreshToken(refreshToken)
+                .refreshTokenMaxAgeSeconds(
+                        Duration.between(Instant.now(), refreshExpiresAt).getSeconds()
+                )
                 .build();
     }
 }

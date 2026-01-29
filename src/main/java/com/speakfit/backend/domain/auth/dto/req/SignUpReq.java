@@ -3,6 +3,7 @@ package com.speakfit.backend.domain.auth.dto.req;
 
 import com.speakfit.backend.domain.term.enums.TermType;
 import com.speakfit.backend.domain.user.enums.Gender;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.Getter;
@@ -14,6 +15,7 @@ public class SignUpReq {
 
     @Getter
     @NoArgsConstructor
+    @Schema(name = "AuthSignUpRequest")
     public static class Request {
 
         @NotBlank
