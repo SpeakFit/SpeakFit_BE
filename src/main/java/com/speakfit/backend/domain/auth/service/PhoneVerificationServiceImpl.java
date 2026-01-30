@@ -69,6 +69,7 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService{
 
     /** 전화번호 인증 코드 확인 **/
     @Override
+    @Transactional(noRollbackFor = CustomException.class)
     public PhoneVerifyRes verifyCode(PhoneVerifyReq req){
         PhoneVerification pv = phoneVerificationRepository.findByVerificationId(req.getVerificationId())
                 .orElseThrow(()-> new CustomException(AuthErrorCode.VERIFICATION_NOT_FOUND));
