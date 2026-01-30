@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
@@ -21,6 +22,8 @@ import java.util.concurrent.ThreadLocalRandom;
 @RequiredArgsConstructor
 @Transactional
 public class PhoneVerificationServiceImpl implements PhoneVerificationService{
+
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private static final int EXPIRES_SEC = 180;
     private static final int CODE_LEN = 6;
@@ -63,16 +66,16 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService{
     }
 
     private String generateNumericCode(int len) {
-        int min = (int) Math.pow(10, len - 1);
-        int max = (int) Math.pow(10, len) - 1;
-        return String.valueOf(ThreadLocalRandom.current().nextInt(min, max + 1));
+        int bound = (int) Math.pow(10, len);
+        int n = SECURE_RANDOM.nextInt(bound);
+        return String.format("%0" + len + "d", n);
     }
 
     private String randomBase36(int len) {
-        String chars = "0123456789abcdefghijklmnopqrstuvwxyz";
+        final String chars = "0123456789abcdefghijklmnopqrstuvwxyz";
         StringBuilder sb = new StringBuilder(len);
         for (int i = 0; i < len; i++) {
-            sb.append(chars.charAt(ThreadLocalRandom.current().nextInt(chars.length())));
+            sb.append(chars.charAt(SECURE_RANDOM.nextInt(chars.length())));
         }
         return sb.toString();
     }
