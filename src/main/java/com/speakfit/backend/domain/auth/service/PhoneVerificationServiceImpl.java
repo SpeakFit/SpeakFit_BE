@@ -33,7 +33,7 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService{
         String phone = req.getPhoneNum();
 
         // 레이트리밋: 1분 내 3회 이상이면 차단
-        LocalDateTime oneMinuteAgo = LocalDateTime.now().minusSeconds(1);
+        LocalDateTime oneMinuteAgo = LocalDateTime.now().minusMinutes(1);
         long recentCount = phoneVerificationRepository.countByPhoneNumAndCreatedAtAfter(phone, oneMinuteAgo);
         if(recentCount >= 3){
             throw new CustomException(AuthErrorCode.PHONE_TOO_MANY_REQUESTS);
