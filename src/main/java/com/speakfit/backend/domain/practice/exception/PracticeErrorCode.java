@@ -4,6 +4,7 @@ import com.speakfit.backend.global.apiPayload.response.code.BaseCode;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
+
 @Getter
 @AllArgsConstructor
 public enum PracticeErrorCode implements BaseCode {

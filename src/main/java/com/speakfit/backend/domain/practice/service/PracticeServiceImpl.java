@@ -89,7 +89,7 @@ public class PracticeServiceImpl implements PracticeService {
         }
 
         // 3. DTO에서 파일을 꺼내서 업로드
-        String audioUrl = uploadAudioFile(practiceId,req.getAudio());
+        String audioUrl = uploadAudioFile(practiceId, req.getAudio());
 
         // 4. db에 저장
         practiceRecord.stopPractice(audioUrl, req.getTime());
