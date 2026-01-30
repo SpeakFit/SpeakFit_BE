@@ -10,14 +10,14 @@ import java.util.List;
 
 public interface ScriptService {
     // 발표 대본 추가 메서드 정의
-    AddScriptRes addScript(AddScriptReq.Request req);
+    AddScriptRes addScript(AddScriptReq.Request req,Long userId);
 
     // 발표 대본 목록 조회 메서드 정의
-    List<GetScriptListRes> getScripts();
+    List<GetScriptListRes> getScripts(Long userId);
 
     // 발표 대본 상세 조회 메서드 정의
-    GetScriptDetailRes getScript(Long scriptId);
+    GetScriptDetailRes getScript(Long scriptId,Long userId);
 
     // 발표 대본 삭제 메서드 정의
-    DeleteScriptRes deleteScript(Long scriptId);
+    DeleteScriptRes deleteScript(Long scriptId,Long userId);
 }

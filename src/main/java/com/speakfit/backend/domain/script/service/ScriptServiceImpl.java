@@ -28,11 +28,9 @@ public class ScriptServiceImpl implements ScriptService {
     // 발표 대본 추가 기능 서비스 구현
     @Override
     @Transactional
-    public AddScriptRes addScript(AddScriptReq.Request req) {
+    public AddScriptRes addScript(AddScriptReq.Request req,Long userId) {
 
-        //--[임시 코드] jwt 구현 전이라 임의로 1번 유저를 가져옴--
-        Long tempUserId = 1L;
-        User user = userRepository.findById(tempUserId)
+        User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND));
 
         // 1.dto->entity 변환
@@ -56,13 +54,11 @@ public class ScriptServiceImpl implements ScriptService {
 
     //발표 대본 목록 조회 기능 서비스 구현
     @Override
-    public List<GetScriptListRes> getScripts() {
+    public List<GetScriptListRes> getScripts(Long userId) {
 
-        // [임시] 1번 유저의 대본목록 조회
-        Long tempUserId = 1L;
 
         // 1. Repository에서 유저의 대본 리스트 가져오기
-        List<Script> scripts = scriptRepository.findAllByUserId(tempUserId);
+        List<Script> scripts = scriptRepository.findAllByUserId(userId);
 
         // 2. Entity리스트 -> dto리스트 변환 및 반환
         return scripts.stream()
@@ -77,13 +73,12 @@ public class ScriptServiceImpl implements ScriptService {
 
     // 발표 대본 상세 조회 기능 서비스 구현
     @Override
-    public GetScriptDetailRes getScript(Long scriptId) {
+    public GetScriptDetailRes getScript(Long scriptId,Long userId) {
         // 1. DB에서 대본 찾기
         Script script=scriptRepository.findById(scriptId)
                 .orElseThrow(()-> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
         // 2. 사용자 권한 체크 로직
-        Long currentUserId=1L;// jwt구현전이라 임시로 1번사용자의 대본만 확인하도록 설정함.
-        if(!script.getUser().getId().equals(currentUserId)) {
+        if(!script.getUser().getId().equals(userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
 
@@ -100,14 +95,13 @@ public class ScriptServiceImpl implements ScriptService {
     // 발표 대본 삭제 기능 서비스 구현
     @Override
     @Transactional
-    public DeleteScriptRes deleteScript(Long scriptId) {
+    public DeleteScriptRes deleteScript(Long scriptId,Long userId) {
         // 1. DB에서 대본 찾기
         Script script = scriptRepository.findById(scriptId)
                 .orElseThrow(()->new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
 
-        // 2. 사용자 권한 체크 (JWT 구현 전이라 임시 1번 유저)
-        Long currentUserId =1L;
-        if(!script.getUser().getId().equals(currentUserId)) {
+        // 2. 사용자 권한 체크
+        if(!script.getUser().getId().equals(userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
 
