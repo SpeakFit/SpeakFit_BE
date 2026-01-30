@@ -1,6 +1,7 @@
 package com.speakfit.backend.domain.practice.dto.req;
 
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -15,6 +16,7 @@ public class StopPracticeReq {
     public static class Request {
 
 
+        @PositiveOrZero
         @NotNull(message = "연습 시간은 필수입니다.")
         private Double time;
 
