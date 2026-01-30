@@ -41,7 +41,7 @@ public class PracticeServiceImpl implements PracticeService {
     public StartPracticeRes startPractice(StartPracticeReq.Request req) {
 
         // 1. 임시 사용자 조회 (JWT 적용 전 1번 유저 고정)
-        Long tempUserId = 1L;
+        Long tempUserId = 5L;
         User user = userRepository.findById(tempUserId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND));
 

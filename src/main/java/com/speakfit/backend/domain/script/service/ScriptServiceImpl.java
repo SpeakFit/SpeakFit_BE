@@ -85,7 +85,7 @@ public class ScriptServiceImpl implements ScriptService {
         Long currentUserId=1L;// jwt구현전이라 임시로 1번사용자의 대본만 확인하도록 설정함.
         if(!script.getUser().getId().equals(currentUserId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
-            }
+        }
 
 
         // 3. Entity -> DTO 변환 및 반환
