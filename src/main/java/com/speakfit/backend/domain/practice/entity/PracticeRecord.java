@@ -43,4 +43,9 @@ public class PracticeRecord extends BaseEntity {
         this.time = time;
         this.status = PracticeStatus.COMPLETED;
     }
+
+    // 분석 요청시 업데이트를 위한 편의 메서드
+    public void startAnalysis() {
+        this.status=PracticeStatus.ANALYZING;
+    }
 }
