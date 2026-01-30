@@ -1,7 +1,9 @@
 package com.speakfit.backend.domain.auth.service;
 
 import com.speakfit.backend.domain.auth.dto.req.PhoneSendReq;
+import com.speakfit.backend.domain.auth.dto.req.PhoneVerifyReq;
 import com.speakfit.backend.domain.auth.dto.res.PhoneSendRes;
+import com.speakfit.backend.domain.auth.dto.res.PhoneVerifyRes;
 import com.speakfit.backend.domain.auth.entity.PhoneVerification;
 import com.speakfit.backend.domain.auth.exception.AuthErrorCode;
 import com.speakfit.backend.domain.auth.repository.PhoneVerificationRepository;
@@ -30,6 +32,7 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService{
     private final PhoneVerificationRepository phoneVerificationRepository;
     private final SmsClient smsClient;
 
+    /** 전화번호 인증 코드 발송 **/
     @Override
     public PhoneSendRes sendCode(PhoneSendReq req){
         String phone = req.getPhoneNum();
@@ -61,6 +64,41 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService{
         return PhoneSendRes.builder()
                 .verificationId(verificationId)
                 .expiresInSec(EXPIRES_SEC)
+                .build();
+    }
+
+    /** 전화번호 인증 코드 확인 **/
+    @Override
+    @Transactional(noRollbackFor = CustomException.class)
+    public PhoneVerifyRes verifyCode(PhoneVerifyReq req){
+        PhoneVerification pv = phoneVerificationRepository.findByVerificationId(req.getVerificationId())
+                .orElseThrow(()-> new CustomException(AuthErrorCode.VERIFICATION_NOT_FOUND));
+
+        // 만료면 삭제 + 만료 에러
+        if (pv.getExpiresAt().isBefore(LocalDateTime.now()) || pv.getExpiresAt().isEqual(LocalDateTime.now())){
+            phoneVerificationRepository.delete(pv);
+            throw new CustomException(AuthErrorCode.VERIFICATION_EXPIRED);
+        }
+
+        // 시도횟수 제한 5회
+        if (pv.getAttemptCount() >= 5){
+            phoneVerificationRepository.delete(pv);
+            throw new CustomException(AuthErrorCode.PHONE_VERIFY_TOO_MANY_ATTEMPTS);
+        }
+
+        // 해시 비교
+        String inputHash = sha256(req.getCode());
+        if (!inputHash.equals(pv.getCodeHash())){
+            pv.increaseAttempt();
+            phoneVerificationRepository.save(pv);
+            throw new CustomException(AuthErrorCode.INVALID_VERIFICATION_CODE);
+        }
+
+        // 성공 시 즉시 삭제
+        phoneVerificationRepository.delete(pv);
+
+        return PhoneVerifyRes.builder()
+                .verified(true)
                 .build();
     }
 
