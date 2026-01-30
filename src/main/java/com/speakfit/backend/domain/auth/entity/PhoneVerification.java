@@ -34,7 +34,7 @@ public class PhoneVerification extends BaseEntity {
     private String codeHash;
 
     @Column(nullable = false)
-    private Instant expiresAt;
+    private LocalDateTime expiresAt;
 
     @Column(nullable = false)
     private boolean verified;
@@ -45,7 +45,7 @@ public class PhoneVerification extends BaseEntity {
     public static PhoneVerification create(String verificationId,
                                            String phoneNum,
                                            String codeHash,
-                                           Instant expiresAt) {
+                                           LocalDateTime expiresAt) {
         PhoneVerification pv = new PhoneVerification();
         pv.verificationId = verificationId;
         pv.phoneNum = phoneNum;
