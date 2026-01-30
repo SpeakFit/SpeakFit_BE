@@ -74,7 +74,7 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService{
                 .orElseThrow(()-> new CustomException(AuthErrorCode.VERIFICATION_NOT_FOUND));
 
         // 만료면 삭제 + 만료 에러
-        if (pv.getExpiresAt().isBefore(LocalDateTime.now())){
+        if (pv.getExpiresAt().isBefore(LocalDateTime.now()) || pv.getExpiresAt().isEqual(LocalDateTime.now())){
             phoneVerificationRepository.delete(pv);
             throw new CustomException(AuthErrorCode.VERIFICATION_EXPIRED);
         }
