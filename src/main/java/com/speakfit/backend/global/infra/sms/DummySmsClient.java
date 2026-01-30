@@ -11,6 +11,6 @@ public class DummySmsClient implements SmsClient{
     @Override
     public void send(String toPhoneNum, String message){
         // 로컬에서는 실제 전송 대신 로그로
-        log.info(("[DUMMY SMS] to={} message={}", toPhoneNum, message));
+        log.info("[DUMMY SMS] to={} message={}", toPhoneNum, message);
     }
 }
