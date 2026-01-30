@@ -1,7 +1,9 @@
 package com.speakfit.backend.domain.practice.controller;
 
+import com.speakfit.backend.domain.practice.dto.req.AnalyzePracticeReq;
 import com.speakfit.backend.domain.practice.dto.req.StartPracticeReq;
 import com.speakfit.backend.domain.practice.dto.req.StopPracticeReq;
+import com.speakfit.backend.domain.practice.dto.res.AnalyzePracticeRes;
 import com.speakfit.backend.domain.practice.dto.res.StartPracticeRes;
 import com.speakfit.backend.domain.practice.dto.res.StopPracticeRes;
 import com.speakfit.backend.domain.practice.service.PracticeService;
@@ -35,5 +37,15 @@ public class PracticeController {
             @AuthenticationPrincipal AuthPrincipal authPrincipal
     ) {
         return ApiResponse.onSuccess(SuccessCode.OK, practiceService.stopPractice(practiceId, request,authPrincipal.getUserId()));
+    }
+
+    // 발표 분석 요청
+    @PostMapping("/analyze")
+    public ApiResponse<AnalyzePracticeRes> analyzePractice(
+            @RequestBody @Valid AnalyzePracticeReq.Request request,
+            @AuthenticationPrincipal AuthPrincipal authPrincipal
+    ) {
+        return ApiResponse.onSuccess(SuccessCode.OK,
+                practiceService.analyzePractice(request, authPrincipal.getUserId()));
     }
 }
