@@ -38,6 +38,7 @@ out/
 
 ### 환경 파일
 .env
+uploads/
 
 # macOS
 .DS_Store
