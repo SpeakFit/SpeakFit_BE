@@ -15,7 +15,7 @@ public class WebClientConfig {
     public WebClient webClient() {
         // 1. 타임아웃 설정 (30초)
         HttpClient httpClient = HttpClient.create()
-                .responseTimeout(Duration.ofSeconds(30));
+                .responseTimeout(Duration.ofSeconds(120));
 
         // 2. Base URL 설정 (http://localhost:5000)
         return WebClient.builder()
