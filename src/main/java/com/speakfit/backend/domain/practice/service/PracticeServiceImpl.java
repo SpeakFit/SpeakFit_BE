@@ -38,11 +38,11 @@ public class PracticeServiceImpl implements PracticeService {
 
     @Override
     @Transactional
-    public StartPracticeRes startPractice(StartPracticeReq.Request req) {
+    public StartPracticeRes startPractice(StartPracticeReq.Request req,Long userId) {
 
-        // 1. 임시 사용자 조회 (JWT 적용 전 1번 유저 고정)
-        Long tempUserId = 5L;
-        User user = userRepository.findById(tempUserId)
+        // 1. 사용자 조회
+
+        User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND));
 
         // 2. 발표 대본 조회
@@ -50,7 +50,7 @@ public class PracticeServiceImpl implements PracticeService {
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
 
         // 3. 사용자 권한 체크
-        if (!script.getUser().getId().equals(tempUserId)) {
+        if (!script.getUser().getId().equals(userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
 
@@ -77,14 +77,13 @@ public class PracticeServiceImpl implements PracticeService {
     // 발표 연습 종료 서비스 구현
     @Override
     @Transactional
-    public StopPracticeRes stopPractice(Long practiceId, StopPracticeReq.Request req) {
+    public StopPracticeRes stopPractice(Long practiceId, StopPracticeReq.StopPracticeRequest req,Long userId) {
         // 1. 발표 연습 기록 조회
         PracticeRecord practiceRecord = practiceRepository.findById(practiceId)
                 .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
 
-        // 2. 임시 사용자 접근 권한 체크(JWT 적용 전 1번 유저 고정)
-        Long currentUserId = 1L;
-        if (!practiceRecord.getUser().getId().equals(currentUserId)) {
+        // 2. 사용자 접근 권한 체크
+        if (!practiceRecord.getUser().getId().equals(userId)) {
             throw new CustomException(PracticeErrorCode.PRACTICE_ACCESS_DENIED);
         }
 
