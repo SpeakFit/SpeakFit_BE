@@ -73,18 +73,15 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService{
         PhoneVerification pv = phoneVerificationRepository.findByVerificationId(req.getVerificationId())
                 .orElseThrow(()-> new CustomException(AuthErrorCode.VERIFICATION_NOT_FOUND));
 
-        // 이미 인증 완료된 요청이면 . . .
-        if (pv.isVerified()){
-            return PhoneVerifyRes.builder().verified(true).build();
-        }
-
-        // 만료 체크
+        // 만료면 삭제 + 만료 에러
         if (pv.getExpiresAt().isBefore(LocalDateTime.now())){
+            phoneVerificationRepository.delete(pv);
             throw new CustomException(AuthErrorCode.VERIFICATION_EXPIRED);
         }
 
         // 시도횟수 제한 5회
         if (pv.getAttemptCount() >= 5){
+            phoneVerificationRepository.delete(pv);
             throw new CustomException(AuthErrorCode.PHONE_VERIFY_TOO_MANY_ATTEMPTS);
         }
 
@@ -96,9 +93,8 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService{
             throw new CustomException(AuthErrorCode.INVALID_VERIFICATION_CODE);
         }
 
-        // 성공 처리
-        pv.markVerified();
-        phoneVerificationRepository.save(pv);
+        // 성공 시 즉시 삭제
+        phoneVerificationRepository.delete(pv);
 
         return PhoneVerifyRes.builder()
                 .verified(true)
