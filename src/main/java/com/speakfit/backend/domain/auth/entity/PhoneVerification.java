@@ -55,4 +55,12 @@ public class PhoneVerification extends BaseEntity {
         pv.attemptCount = 0;
         return pv;
     }
+
+    public void markVerified() {
+        this.verified = true;
+    }
+
+    public void increaseAttempt() {
+        this.attemptCount++;
+    }
 }
