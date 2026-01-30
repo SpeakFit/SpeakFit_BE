@@ -110,32 +110,43 @@ public class PracticeServiceImpl implements PracticeService {
         }
 
         try {
-            // 1. 저장할 디렉토리 설정 및 생성 (Files.createDirectories 사용)
-            Path uploadDirPath = Paths.get("uploads/audio/");
+            // 1. 저장 디렉토리 설정 (절대 경로로 변환하여 기준점 확보)
+            Path uploadDirPath = Paths.get("uploads/audio/").toAbsolutePath().normalize();
             if (!Files.exists(uploadDirPath)) {
-                Files.createDirectories(uploadDirPath); // 생성 실패 시 자동으로 IOException 발생
+                Files.createDirectories(uploadDirPath);
             }
 
-            // 2. 파일명 생성 로직
+            // 2. 파일명 생성 및 보안 정제 (Sanitize)
+            // file.getOriginalFilename()에 포함될 수 있는 "../../" 등을 제거합니다.
             String extension = getFileExtension(file.getOriginalFilename());
             String fileName = practiceId + extension;
-            Path filePath = uploadDirPath.resolve(fileName);
 
-            // 3. 실제 파일 저장
+            // 3. 경로 결합 및 정규화 (.normalize())
+            Path filePath = uploadDirPath.resolve(fileName).normalize();
+
+            // 최종 경로가 반드시 의도한 디렉토리 내부인지 검증
+            if (!filePath.startsWith(uploadDirPath)) {
+                throw new RuntimeException("보안 위험이 감지되었습니다: 올바르지 않은 파일 경로입니다.");
+            }
+
+            // 4. 실제 파일 저장
             Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
 
-            return filePath.toAbsolutePath().toString();
+            return filePath.toString();
 
         } catch (IOException e) {
             throw new RuntimeException("로컬 파일 저장 중 오류가 발생했습니다.", e);
         }
     }
 
-    // 발표 연습 종료 음성파일 업로드 메소드 파일 확장자 추출 로직 분리
+    // 확장자 추출 로직
     private String getFileExtension(String fileName) {
-        if (fileName != null && fileName.contains(".")) {
-            return fileName.substring(fileName.lastIndexOf("."));
-        }
-        return "";
+        if (fileName == null || fileName.isEmpty()) return "";
+
+        // Paths.get(...).getFileName()은 경로 구분자(/, \)를 무시하고 실제 '파일명'만 남김
+        String cleanFileName = Paths.get(fileName).getFileName().toString();
+
+        int dotIdx = cleanFileName.lastIndexOf(".");
+        return (dotIdx != -1) ? cleanFileName.substring(dotIdx) : "";
     }
 }
