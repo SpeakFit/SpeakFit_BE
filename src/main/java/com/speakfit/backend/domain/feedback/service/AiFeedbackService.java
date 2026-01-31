@@ -66,6 +66,9 @@ public class AiFeedbackService {
     public void updateFeedbackResult(Long feedbackId, String content, FeedbackStatus status) {
         feedbackRepository.findById(feedbackId).ifPresent(feedback -> {
             feedback.updateFeedback(content, status);
+
+            feedbackRepository.save(feedback); //db에 저장
+
             log.info("피드백 상태 업데이트 완료: {} -> {}", feedbackId, status);
         });
     }
