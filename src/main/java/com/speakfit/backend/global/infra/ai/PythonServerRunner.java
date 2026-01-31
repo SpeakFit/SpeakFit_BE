@@ -42,8 +42,9 @@ public class PythonServerRunner implements ApplicationRunner {
 
         System.out.println("[Python] 가상환경(venv) 생성 중... (시간이 좀 걸릴 수 있습니다)");
         try {
-            // python -m venv venv
-            ProcessBuilder pb = new ProcessBuilder("python", "-m", "venv", VENV_DIR);
+            // [수정] 시스템 환경에 맞춰 python 또는 python3 사용
+            String cmd = isWindows() ? "python" : "python3";
+            ProcessBuilder pb = new ProcessBuilder(cmd, "-m", "venv", VENV_DIR);
             pb.directory(new File(PY_DIR));
             pb.redirectErrorStream(true);
 
@@ -63,12 +64,10 @@ public class PythonServerRunner implements ApplicationRunner {
     // [2단계] 라이브러리 설치
     private void installDependencies() {
         try {
-            // requirements.txt가 없으면 패스
             if (!new File(PY_DIR, REQUIREMENTS).exists()) return;
 
             System.out.println("[Python] 라이브러리 설치 확인 중...");
 
-            // 생성된 가상환경 파이썬 사용
             String pythonExe = getPythonExecutable();
 
             // pip install -r requirements.txt
@@ -132,17 +131,26 @@ public class PythonServerRunner implements ApplicationRunner {
         }
     }
 
-    // 파이썬 실행 경로 찾기 (venv 우선)
+    /**
+     * 파이썬 실행 경로 찾기 (venv 우선, 실패 시 시스템 파이썬 반환)
+     */
     private String getPythonExecutable() {
-        // Windows
-        File venvWin = new File(PY_DIR + "/venv/Scripts/python.exe");
-        if (venvWin.exists()) return venvWin.getAbsolutePath();
+        if (isWindows()) {
+            // Windows 가상환경 경로
+            File venvWin = new File(PY_DIR, VENV_DIR + "/Scripts/python.exe");
+            if (venvWin.exists()) return venvWin.getAbsolutePath();
+            return "python";
+        } else {
+            // Mac/Linux 가상환경 경로
+            File venvUnix = new File(PY_DIR, VENV_DIR + "/bin/python");
+            if (venvUnix.exists()) return venvUnix.getAbsolutePath();
+            return "python3"; // [수정] 맥/리눅스 기본 명령어 일치화
+        }
+    }
 
-        // Mac/Linux
-        File venvUnix = new File(PY_DIR + "/venv/bin/python");
-        if (venvUnix.exists()) return venvUnix.getAbsolutePath();
-
-        return "python"; // 시스템 파이썬
+    // 운영체제 확인 유틸리티
+    private boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
     }
 
     @PreDestroy
