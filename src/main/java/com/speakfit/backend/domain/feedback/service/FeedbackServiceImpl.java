@@ -4,6 +4,7 @@ import com.speakfit.backend.domain.feedback.dto.req.GenerateFeedbackReq;
 import com.speakfit.backend.domain.feedback.dto.res.GenerateFeedbackRes;
 import com.speakfit.backend.domain.feedback.entity.Feedback;
 import com.speakfit.backend.domain.feedback.enums.FeedbackStatus;
+import com.speakfit.backend.domain.feedback.exception.FeedbackErrorCode;
 import com.speakfit.backend.domain.feedback.repository.FeedbackRepository;
 import com.speakfit.backend.domain.practice.entity.AnalysisResult;
 import com.speakfit.backend.domain.practice.entity.PracticeRecord;
@@ -18,10 +19,13 @@ import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -44,6 +48,9 @@ public class FeedbackServiceImpl implements FeedbackService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND));
 
+        if (req.getEndDate().isBefore(req.getStartDate())) {
+            throw new CustomException(FeedbackErrorCode.FEEDBACK_INVALID_DATE_RANGE);
+        }
         // 2. 날짜 범위 설정 (00:00:00 ~ 23:59:59)
         LocalDateTime startDateTime = req.getStartDate().atStartOfDay();
         LocalDateTime endDateTime = req.getEndDate().atTime(LocalTime.MAX);
@@ -74,11 +81,16 @@ public class FeedbackServiceImpl implements FeedbackService {
 
         Feedback savedFeedback = feedbackRepository.save(feedback);
 
-        // 6. 비동기 AI 분석 요청
-        aiFeedbackService.processFeedbackAsync(
-                savedFeedback.getId(), avgWpm, avgPitch, avgIntensity,
-                avgZcr, pauseRatio, req.getStartDate(), req.getEndDate()
-        );
+        // 6. 트랜잭션 커밋 이후에만 비동기 AI 분석 요청 (Race Condition 방지)
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                aiFeedbackService.processFeedbackAsync(
+                        savedFeedback.getId(), avgWpm, avgPitch, avgIntensity,
+                        avgZcr, pauseRatio, req.getStartDate(), req.getEndDate()
+                );
+            }
+        });
 
         // 7. 결과 반환
         return GenerateFeedbackRes.builder()
@@ -89,12 +101,15 @@ public class FeedbackServiceImpl implements FeedbackService {
     }
 
     // 내부 헬퍼 메소드: 스트림 중복 로직 제거
+    // Double unboxing 시 NPE 방지를 위해 필터링 추가
     private double calculateAverage(List<PracticeRecord> records,
-                                    java.util.function.ToDoubleFunction<AnalysisResult> mapper) {
+                                    java.util.function.Function<AnalysisResult, Double> mapper) {
         return records.stream()
                 .map(record -> analysisResultRepository.findByPracticeRecord(record)
                         .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND)))
-                .mapToDouble(mapper)
+                .map(mapper)
+                .filter(Objects::nonNull) // null 값 필터링
+                .mapToDouble(Double::doubleValue)
                 .average()
                 .orElse(0.0);
     }

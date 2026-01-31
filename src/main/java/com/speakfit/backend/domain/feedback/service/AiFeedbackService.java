@@ -1,6 +1,6 @@
 package com.speakfit.backend.domain.feedback.service;
 
-import com.speakfit.backend.domain.feedback.entity.Feedback;
+
 import com.speakfit.backend.domain.feedback.enums.FeedbackStatus;
 import com.speakfit.backend.domain.feedback.repository.FeedbackRepository;
 import lombok.*;
@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.LocalDate;
-
+import java.time.Duration;
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -20,6 +20,8 @@ public class AiFeedbackService {
     private final FeedbackRepository feedbackRepository;
     private final WebClient webClient;
 
+
+    // 파이썬 AI 서버에 피드백 분석을 비동기로 요청
     @Async // 별도 스레드에서 비동기 처리
     @Transactional
     public void processFeedbackAsync(Long feedbackId, Double avgWpm, Double avgPitch,
@@ -47,6 +49,7 @@ public class AiFeedbackService {
                     .bodyValue(req)
                     .retrieve()
                     .bodyToMono(PythonFeedbackRes.class)
+                    .timeout(Duration.ofSeconds(60))
                     .subscribe(response -> {
                         // 성공 시 DB 업데이트
                         updateFeedbackResult(feedbackId, response.getAiFeedback(), FeedbackStatus.COMPLETED);
@@ -62,16 +65,18 @@ public class AiFeedbackService {
         }
     }
 
+    // 피드백 결과 업데이트 메소드
+
     @Transactional
     public void updateFeedbackResult(Long feedbackId, String content, FeedbackStatus status) {
-        feedbackRepository.findById(feedbackId).ifPresent(feedback -> {
+        // 데이터가 없을 경우 경고 로그를 남기도록 개선
+        feedbackRepository.findById(feedbackId).ifPresentOrElse(feedback -> {
             feedback.updateFeedback(content, status);
-
-            feedbackRepository.save(feedback); //db에 저장
-
+            feedbackRepository.save(feedback);
             log.info("피드백 상태 업데이트 완료: {} -> {}", feedbackId, status);
-        });
+        }, () -> log.warn("피드백을 찾을 수 없습니다. ID: {}", feedbackId));
     }
+
 
     // 파이썬 서버 통신용 내부 DTO
     @Getter @Builder @AllArgsConstructor

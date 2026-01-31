@@ -28,14 +28,14 @@ public class Feedback extends BaseEntity {
     @Column(name = "ai_feedback", columnDefinition = "TEXT")
     private String aiFeedback;
 
-    @Column(name = "start_date")
+    @Column(name = "start_date", nullable = false)
     private LocalDate startDate;
 
-    @Column(name = "end_date")
+    @Column(name = "end_date", nullable = false)
     private LocalDate endDate;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status")
+    @Column(name = "status", nullable = false)
     private FeedbackStatus status;
 
     // 피드백 상태 업데이트
