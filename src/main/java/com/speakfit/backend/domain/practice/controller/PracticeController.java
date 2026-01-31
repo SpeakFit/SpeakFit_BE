@@ -4,6 +4,7 @@ import com.speakfit.backend.domain.practice.dto.req.AnalyzePracticeReq;
 import com.speakfit.backend.domain.practice.dto.req.StartPracticeReq;
 import com.speakfit.backend.domain.practice.dto.req.StopPracticeReq;
 import com.speakfit.backend.domain.practice.dto.res.AnalyzePracticeRes;
+import com.speakfit.backend.domain.practice.dto.res.GetPracticeReportRes;
 import com.speakfit.backend.domain.practice.dto.res.StartPracticeRes;
 import com.speakfit.backend.domain.practice.dto.res.StopPracticeRes;
 import com.speakfit.backend.domain.practice.service.PracticeService;
@@ -25,8 +26,10 @@ public class PracticeController {
 
     // 발표 연습 시작
     @PostMapping
-    public ApiResponse<StartPracticeRes> startPractice(@RequestBody @Valid StartPracticeReq.Request request, @AuthenticationPrincipal AuthPrincipal authPrincipal) {
-        return ApiResponse.onSuccess(SuccessCode.CREATED, practiceService.startPractice(request,authPrincipal.getUserId()));
+    public ApiResponse<StartPracticeRes> startPractice(
+            @RequestBody @Valid StartPracticeReq.Request request,
+            @AuthenticationPrincipal AuthPrincipal authPrincipal) {
+        return ApiResponse.onSuccess(SuccessCode.CREATED, practiceService.startPractice(request, authPrincipal.getUserId()));
     }
 
     // 발표 연습 종료
@@ -36,7 +39,8 @@ public class PracticeController {
             @ModelAttribute @Valid StopPracticeReq.StopPracticeRequest request,
             @AuthenticationPrincipal AuthPrincipal authPrincipal
     ) {
-        return ApiResponse.onSuccess(SuccessCode.OK, practiceService.stopPractice(practiceId, request,authPrincipal.getUserId()));
+        return ApiResponse.onSuccess(SuccessCode.OK,
+                practiceService.stopPractice(practiceId, request, authPrincipal.getUserId()));
     }
 
     // 발표 분석 요청
@@ -47,5 +51,15 @@ public class PracticeController {
     ) {
         return ApiResponse.onSuccess(SuccessCode.OK,
                 practiceService.analyzePractice(request, authPrincipal.getUserId()));
+    }
+
+    // 발표 분석 결과 조회
+    @GetMapping("/{practiceId}/report")
+    public ApiResponse<GetPracticeReportRes> getPracticeReport(
+            @PathVariable Long practiceId,
+            @AuthenticationPrincipal AuthPrincipal authPrincipal
+    ) {
+        return ApiResponse.onSuccess(SuccessCode.OK,
+                practiceService.getPracticeReport(practiceId, authPrincipal.getUserId()));
     }
 }

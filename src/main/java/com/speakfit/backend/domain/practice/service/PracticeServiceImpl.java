@@ -3,10 +3,7 @@ package com.speakfit.backend.domain.practice.service;
 import com.speakfit.backend.domain.practice.dto.req.AnalyzePracticeReq;
 import com.speakfit.backend.domain.practice.dto.req.StartPracticeReq;
 import com.speakfit.backend.domain.practice.dto.req.StopPracticeReq;
-import com.speakfit.backend.domain.practice.dto.res.AnalyzePracticeRes;
-import com.speakfit.backend.domain.practice.dto.res.PythonAnalysisRes;
-import com.speakfit.backend.domain.practice.dto.res.StartPracticeRes;
-import com.speakfit.backend.domain.practice.dto.res.StopPracticeRes;
+import com.speakfit.backend.domain.practice.dto.res.*;
 import com.speakfit.backend.domain.practice.entity.AiAnalysisResult;
 import com.speakfit.backend.domain.practice.entity.AnalysisResult;
 import com.speakfit.backend.domain.practice.entity.PracticeRecord;
@@ -22,7 +19,6 @@ import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.domain.user.repository.UserRepository;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -33,8 +29,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.HashMap;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -196,5 +190,74 @@ public class PracticeServiceImpl implements PracticeService {
                 .status("ANALYZING")
                 .message("분석 요청이 접수되었습니다.")
                 .build();
+    }
+
+    // 발표 분석 결과 조회 서비스 구현
+    @Override
+    public GetPracticeReportRes getPracticeReport(Long practiceId, Long userId) {
+        // 1. 연습 기록 조회
+        PracticeRecord practiceRecord = practiceRepository.findById(practiceId)
+                .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
+
+        // 2. 권한 확인
+        if (!practiceRecord.getUser().getId().equals(userId)) {
+            throw new CustomException(PracticeErrorCode.PRACTICE_ACCESS_DENIED);
+        }
+
+        // 3. 상태 체크 (Polling 대응)
+        if (practiceRecord.getStatus() != PracticeStatus.ANALYZED) {
+            String msg = (practiceRecord.getStatus() == PracticeStatus.ANALYZING)
+                    ? "AI가 데이터를 분석하고 있습니다. 잠시만 기다려주세요."
+                    : "분석 요청이 처리되지 않았거나 실패했습니다.";
+
+            return GetPracticeReportRes.builder()
+                    .practiceId(practiceRecord.getId())
+                    .status(practiceRecord.getStatus().toString())
+                    .message(msg)
+                    .build();
+        }
+
+        // 4. 분석 완료 시 데이터 조회
+        AnalysisResult analysis = analysisResultRepository.findByPracticeRecord(practiceRecord)
+                .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
+
+        AiAnalysisResult aiResult = aiAnalysisResultRepository.findByPracticeRecord(practiceRecord)
+                .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
+
+        // 5. DTO 매핑
+        return GetPracticeReportRes.builder()
+                .practiceId(practiceRecord.getId())
+                .status("ANALYZED")
+                .audioUrl(practiceRecord.getAudioUrl())
+                .time(practiceRecord.getTime())
+                .createdAt(practiceRecord.getCreatedAt())
+                .analysis(GetPracticeReportRes.AnalysisDetail.builder()
+                        .wpm(GetPracticeReportRes.StatInfo.builder()
+                                .avg(analysis.getAvgWpm())
+                                .variability(analysis.getWpmDiff()) // diff -> variability 매핑
+                                .build())
+                        .pitch(GetPracticeReportRes.StatInfo.builder()
+                                .avg(analysis.getAvgPitch())
+                                .variability(analysis.getPitchDiff())
+                                .build())
+                        .intensity(GetPracticeReportRes.StatInfo.builder()
+                                .avg(analysis.getAvgIntensity())
+                                .variability(analysis.getIntensityDiff())
+                                .build())
+                        .zcr(GetPracticeReportRes.StatInfo.builder()
+                                .avg(analysis.getAvgZcr())
+                                .variability(analysis.getZcrDiff())
+                                .build())
+                        .pause(GetPracticeReportRes.PauseInfo.builder()
+                                .ratio(analysis.getPauseRatio())
+                                .count(analysis.getPauseCount())
+                                .build())
+                        .build())
+                .aiAnalysis(GetPracticeReportRes.AiAnalysisDetail.builder()
+                        .summary(aiResult.getAiSummary()) // aiSummary -> summary 매핑
+                        .createdAt(aiResult.getCreatedAt())
+                        .build())
+                .build();
+
     }
 }
