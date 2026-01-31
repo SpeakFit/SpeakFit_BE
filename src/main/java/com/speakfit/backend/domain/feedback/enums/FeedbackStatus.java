@@ -1,4 +1,4 @@
-package com.speakfit.backend.domain.feedback;
+package com.speakfit.backend.domain.feedback.enums;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
