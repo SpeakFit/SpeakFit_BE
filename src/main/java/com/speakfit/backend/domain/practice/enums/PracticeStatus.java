@@ -8,9 +8,10 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum PracticeStatus {
     RECORDING("녹음중"),
-   COMPLETED("연습 완료"),
-   ANALYZING("분석중"),
-   ANALYZED("분석 완료");
+    COMPLETED("연습 완료"),
+    ANALYZING("분석중"),
+    ANALYZED("분석 완료"),
+    FAILED("분석 실패");
 
     private final String description;
 }

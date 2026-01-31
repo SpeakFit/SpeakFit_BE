@@ -46,11 +46,16 @@ public class PracticeRecord extends BaseEntity {
 
     // 분석 요청시 업데이트를 위한 편의 메서드
     public void startAnalysis() {
-        this.status=PracticeStatus.ANALYZING;
+        this.status = PracticeStatus.ANALYZING;
     }
 
     // 분석 완료시 업데이트를 위한 편의 메서드
-    public void finishAnalysis(){
-        this.status=PracticeStatus.ANALYZED;
+    public void finishAnalysis() {
+        this.status = PracticeStatus.ANALYZED;
+    }
+
+    // 분석 요청 후 업데이트를 위한 편의 메서드
+    public void updateStatus(PracticeStatus status) {
+        this.status = status;
     }
 }

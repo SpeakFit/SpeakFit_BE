@@ -48,6 +48,7 @@ public class PracticeServiceImpl implements PracticeService {
     private final AiAnalysisResultRepository aiAnalysisResultRepository;
 
     private final WebClient webClient;
+    private final AiAnalysisService aiAnalysisService;// 비동기 설계를 위해 같은 클래스 말고 외부에 클래스만듬
 
     // 발표 연습 시작 서비스 구현
 
@@ -170,16 +171,16 @@ public class PracticeServiceImpl implements PracticeService {
     public AnalyzePracticeRes analyzePractice(AnalyzePracticeReq.Request request, Long userId) {
         // 1. 연습 기록 조회: 요청된 ID로 기록을 찾고 없으면 예외 발생
         PracticeRecord practiceRecord = practiceRepository.findById(request.getPracticeId())
-                .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
+                .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
 
         // 2. 권한 체크: 현재 사용자가 해당 연습 기록의 소유자인지 검증
         if (!practiceRecord.getUser().getId().equals(userId)) {
-            throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
+            throw new CustomException(PracticeErrorCode.PRACTICE_ACCESS_DENIED);
         }
 
         // 3. 파일 존재 여부 확인: 분석할 오디오 URL이 비어있거나 null인지 체크
         if (practiceRecord.getAudioUrl() == null || practiceRecord.getAudioUrl().isEmpty()) {
-            throw new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND);
+            throw new CustomException(PracticeErrorCode.PRACTICE_AUDIOURL_NOT_FOUND);
         }
 
         // 4. 상태 변경: 분석 시작 상태로 변경하고 DB에 즉시 반영
@@ -187,7 +188,7 @@ public class PracticeServiceImpl implements PracticeService {
         practiceRepository.save(practiceRecord);
 
         // 5. 비동기 분석 호출: 파이썬 서버 통신 및 결과 저장을 별도 스레드에서 수행 (Non-blocking)
-        processAnalysisAsync(practiceRecord.getId(), practiceRecord.getAudioUrl());
+        aiAnalysisService.processAnalysisAsync(practiceRecord.getId(), practiceRecord.getAudioUrl());
 
         // 6. 즉시 응답 반환: 사용자는 대기 없이 분석 중이라는 메시지를 받음
         return AnalyzePracticeRes.builder()
@@ -195,67 +196,5 @@ public class PracticeServiceImpl implements PracticeService {
                 .status("ANALYZING")
                 .message("분석 요청이 접수되었습니다.")
                 .build();
-    }
-
-    //비동기 분석 및 결과 저장 로직
-    //별도의 스레드에서 실행되므로 @Transactional이 적용된 메서드와는 트랜잭션이 분리됨
-    @Async
-    public void processAnalysisAsync(Long practiceId, String audioUrl) {
-        try {
-            // 1. 파이썬 서버 호출: 외부 서버와의 통신 (응답이 올 때까지 블로킹 됨)
-            PythonAnalysisRes pythonData = requestPythonAnalysis(practiceId, audioUrl);
-
-            // 2. 결과 저장: 데이터가 정상적으로 수신된 경우에만 진행
-            if (pythonData != null) {
-                // 별도 스레드이므로 연관 엔티티를 새로 조회해야 함
-                PracticeRecord practiceRecord = practiceRepository.findById(practiceId).orElseThrow();
-
-                // (1) 정량적 분석 결과 데이터 생성 및 저장
-                AnalysisResult analysisResult = AnalysisResult.builder()
-                        .practiceRecord(practiceRecord)
-                        .avgWpm(pythonData.getAvgWpm())
-                        .avgPitch(pythonData.getAvgPitch())
-                        .avgIntensity(pythonData.getAvgIntensity())
-                        .avgZcr(pythonData.getAvgZcr())
-                        .pauseRatio(pythonData.getPauseRatio())
-                        .wpmDiff(pythonData.getWpmDiff())
-                        .pitchDiff(pythonData.getPitchDiff())
-                        .intensityDiff(pythonData.getIntensityDiff())
-                        .zcrDiff(pythonData.getZcrDiff())
-                        .pauseCount(pythonData.getPauseCount())
-                        .build();
-                analysisResultRepository.save(analysisResult);
-
-                // (2) AI 총평 피드백 저장
-                AiAnalysisResult aiAnalysisResult = AiAnalysisResult.builder()
-                        .practiceRecord(practiceRecord)
-                        .aiSummary(pythonData.getAiSummary())
-                        .build();
-                aiAnalysisResultRepository.save(aiAnalysisResult);
-
-                // (3) 연습 기록 상태 완료로 변경 (엔티티에 정의된 메서드 호출 권장)
-                practiceRecord.finishAnalysis();
-                practiceRepository.save(practiceRecord);
-
-                System.out.println("비동기 분석 완료 및 저장 성공 (ID: " + practiceId + ")");
-            }
-        } catch (Exception e) {
-            // 분석 실패 시 로그를 남기고, 필요 시 DB에 실패 상태를 기록하는 로직을 추가할 수 있음
-            System.err.println("비동기 분석 중 오류 발생: " + e.getMessage());
-        }
-    }
-
-    //WebClient를 사용한 파이썬 서버 통신 메서드
-    private PythonAnalysisRes requestPythonAnalysis(Long practiceId, String audioUrl) {
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("practiceId", practiceId);
-        requestBody.put("audioUrl", audioUrl);
-
-        return webClient.post()
-                .uri("/analyze")
-                .bodyValue(requestBody)
-                .retrieve()
-                .bodyToMono(PythonAnalysisRes.class)
-                .block(); // 비동기 스레드 내에서의 실행이므로 block()을 써도 전체 시스템 성능에 영향을 주지 않음
     }
 }

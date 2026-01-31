@@ -49,4 +49,19 @@ public class AnalysisResult {
 
     @Column(name = "pause_count")
     private Integer pauseCount;
+
+    public void updateData(Double avgWpm, Double avgPitch, Double avgIntensity, Double avgZcr,
+                           Double pauseRatio, Double wpmDiff, Double pitchDiff,
+                           Double intensityDiff, Double zcrDiff, Integer pauseCount) {
+        this.avgWpm = avgWpm;
+        this.avgPitch = avgPitch;
+        this.avgIntensity = avgIntensity;
+        this.avgZcr = avgZcr;
+        this.pauseRatio = pauseRatio;
+        this.wpmDiff = wpmDiff;
+        this.pitchDiff = pitchDiff;
+        this.intensityDiff = intensityDiff;
+        this.zcrDiff = zcrDiff;
+        this.pauseCount = pauseCount;
+    }
 }

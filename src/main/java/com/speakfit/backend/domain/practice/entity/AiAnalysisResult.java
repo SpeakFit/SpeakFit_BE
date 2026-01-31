@@ -23,4 +23,8 @@ public class AiAnalysisResult extends BaseEntity {
 
     @Column(name = "ai_summary", columnDefinition = "TEXT")
     private String aiSummary;
+
+    public void updateSummary(String aiSummary) {
+        this.aiSummary = aiSummary;
+    }
 }
