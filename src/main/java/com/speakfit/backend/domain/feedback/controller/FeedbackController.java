@@ -2,6 +2,7 @@ package com.speakfit.backend.domain.feedback.controller;
 
 import com.speakfit.backend.domain.feedback.dto.req.GenerateFeedbackReq;
 import com.speakfit.backend.domain.feedback.dto.res.GenerateFeedbackRes;
+import com.speakfit.backend.domain.feedback.dto.res.GetFeedbackDetailRes;
 import com.speakfit.backend.domain.feedback.service.FeedbackService;
 import com.speakfit.backend.global.apiPayload.response.ApiResponse;
 import com.speakfit.backend.global.apiPayload.response.code.SuccessCode;
@@ -9,10 +10,7 @@ import com.speakfit.backend.global.config.security.AuthPrincipal;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor
@@ -29,4 +27,14 @@ public class FeedbackController {
         return ApiResponse.onSuccess(SuccessCode.CREATED,
                 feedbackService.generateFeedback(request, authPrincipal.getUserId()));
     }
+
+    // 피드백 상세 조회
+    @GetMapping("/{feedbackId}")
+    public ApiResponse<GetFeedbackDetailRes> getFeedbackDetail(
+            @PathVariable Long feedbackId,
+            @AuthenticationPrincipal AuthPrincipal authPrincipal) {
+        return ApiResponse.onSuccess(SuccessCode.OK,
+                feedbackService.getFeedbackDetail(feedbackId, authPrincipal.getUserId()));
+    }
+
 }
