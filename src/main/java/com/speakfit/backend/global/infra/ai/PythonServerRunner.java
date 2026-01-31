@@ -43,7 +43,8 @@ public class PythonServerRunner implements ApplicationRunner {
         System.out.println("[Python] 가상환경(venv) 생성 중... (시간이 좀 걸릴 수 있습니다)");
         try {
             // python -m venv venv
-            ProcessBuilder pb = new ProcessBuilder("python", "-m", "venv", VENV_DIR);
+            String cmd = isWindows() ? "python" : "python3";
+            ProcessBuilder pb = new ProcessBuilder(cmd, "-m", "venv", VENV_DIR);
             pb.directory(new File(PY_DIR));
             pb.redirectErrorStream(true);
 
@@ -145,6 +146,10 @@ public class PythonServerRunner implements ApplicationRunner {
         return "python"; // 시스템 파이썬
     }
 
+    // 운영체제 확인 유틸리티
+    private boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
+    }
     @PreDestroy
     public void stopPythonServer() {
         if (pythonProcess != null && pythonProcess.isAlive()) {

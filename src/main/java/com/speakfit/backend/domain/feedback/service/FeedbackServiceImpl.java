@@ -162,8 +162,11 @@ public class FeedbackServiceImpl implements FeedbackService {
         // 7. 변화량(Highlights) 계산: (이번 주 - 지난 주)
         GetFeedbackDetailRes.AnalysisHighlights highlights = GetFeedbackDetailRes.AnalysisHighlights.builder()
                 .wpmDiff(thisWeekMetrics.getAvgWpm() - lastWeekMetrics.getAvgWpm())
-                .pauseCountDiff(calculateAverage(thisWeekRecords, result -> (double) result.getPauseCount())
-                        - calculateAverage(lastWeekRecords, result -> (double) result.getPauseCount()))
+                .pauseCountDiff(calculateAverage(thisWeekRecords, result ->
+                        result.getPauseCount() != null ? result.getPauseCount().doubleValue() : 0.0)
+                        - calculateAverage(lastWeekRecords, result ->
+                        result.getPauseCount() != null ? result.getPauseCount().doubleValue() : 0.0))
+
                 .intensityDiff(thisWeekMetrics.getAvgIntensity() - lastWeekMetrics.getAvgIntensity())
                 .pitchDiff(thisWeekMetrics.getAvgPitch() - lastWeekMetrics.getAvgPitch())
                 .build();
