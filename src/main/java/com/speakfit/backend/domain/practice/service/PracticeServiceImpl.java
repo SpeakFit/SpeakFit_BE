@@ -1,12 +1,19 @@
 package com.speakfit.backend.domain.practice.service;
 
+import com.speakfit.backend.domain.practice.dto.req.AnalyzePracticeReq;
 import com.speakfit.backend.domain.practice.dto.req.StartPracticeReq;
 import com.speakfit.backend.domain.practice.dto.req.StopPracticeReq;
+import com.speakfit.backend.domain.practice.dto.res.AnalyzePracticeRes;
+import com.speakfit.backend.domain.practice.dto.res.PythonAnalysisRes;
 import com.speakfit.backend.domain.practice.dto.res.StartPracticeRes;
 import com.speakfit.backend.domain.practice.dto.res.StopPracticeRes;
+import com.speakfit.backend.domain.practice.entity.AiAnalysisResult;
+import com.speakfit.backend.domain.practice.entity.AnalysisResult;
 import com.speakfit.backend.domain.practice.entity.PracticeRecord;
 import com.speakfit.backend.domain.practice.enums.PracticeStatus;
 import com.speakfit.backend.domain.practice.exception.PracticeErrorCode;
+import com.speakfit.backend.domain.practice.repository.AiAnalysisResultRepository;
+import com.speakfit.backend.domain.practice.repository.AnalysisResultRepository;
 import com.speakfit.backend.domain.practice.repository.PracticeRepository;
 import com.speakfit.backend.domain.script.entity.Script;
 import com.speakfit.backend.domain.script.exception.ScriptErrorCode;
@@ -15,15 +22,19 @@ import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.domain.user.repository.UserRepository;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.HashMap;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -33,12 +44,17 @@ public class PracticeServiceImpl implements PracticeService {
     private final PracticeRepository practiceRepository;
     private final ScriptRepository scriptRepository;
     private final UserRepository userRepository;
+    private final AnalysisResultRepository analysisResultRepository;
+    private final AiAnalysisResultRepository aiAnalysisResultRepository;
+
+    private final WebClient webClient;
+    private final AiAnalysisService aiAnalysisService;// 비동기 설계를 위해 같은 클래스 말고 외부에 클래스만듬
 
     // 발표 연습 시작 서비스 구현
 
     @Override
     @Transactional
-    public StartPracticeRes startPractice(StartPracticeReq.Request req,Long userId) {
+    public StartPracticeRes startPractice(StartPracticeReq.Request req, Long userId) {
 
         // 1. 사용자 조회
 
@@ -77,7 +93,7 @@ public class PracticeServiceImpl implements PracticeService {
     // 발표 연습 종료 서비스 구현
     @Override
     @Transactional
-    public StopPracticeRes stopPractice(Long practiceId, StopPracticeReq.StopPracticeRequest req,Long userId) {
+    public StopPracticeRes stopPractice(Long practiceId, StopPracticeReq.StopPracticeRequest req, Long userId) {
         // 1. 발표 연습 기록 조회
         PracticeRecord practiceRecord = practiceRepository.findById(practiceId)
                 .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
@@ -147,5 +163,38 @@ public class PracticeServiceImpl implements PracticeService {
 
         int dotIdx = cleanFileName.lastIndexOf(".");
         return (dotIdx != -1) ? cleanFileName.substring(dotIdx) : "";
+    }
+
+    // 발표 분석 요청 서비스 구현
+    @Override
+    @Transactional
+    public AnalyzePracticeRes analyzePractice(AnalyzePracticeReq.Request request, Long userId) {
+        // 1. 연습 기록 조회: 요청된 ID로 기록을 찾고 없으면 예외 발생
+        PracticeRecord practiceRecord = practiceRepository.findById(request.getPracticeId())
+                .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
+
+        // 2. 권한 체크: 현재 사용자가 해당 연습 기록의 소유자인지 검증
+        if (!practiceRecord.getUser().getId().equals(userId)) {
+            throw new CustomException(PracticeErrorCode.PRACTICE_ACCESS_DENIED);
+        }
+
+        // 3. 파일 존재 여부 확인: 분석할 오디오 URL이 비어있거나 null인지 체크
+        if (practiceRecord.getAudioUrl() == null || practiceRecord.getAudioUrl().isEmpty()) {
+            throw new CustomException(PracticeErrorCode.PRACTICE_AUDIOURL_NOT_FOUND);
+        }
+
+        // 4. 상태 변경: 분석 시작 상태로 변경하고 DB에 즉시 반영
+        practiceRecord.startAnalysis();
+        practiceRepository.save(practiceRecord);
+
+        // 5. 비동기 분석 호출: 파이썬 서버 통신 및 결과 저장을 별도 스레드에서 수행 (Non-blocking)
+        aiAnalysisService.processAnalysisAsync(practiceRecord.getId(), practiceRecord.getAudioUrl());
+
+        // 6. 즉시 응답 반환: 사용자는 대기 없이 분석 중이라는 메시지를 받음
+        return AnalyzePracticeRes.builder()
+                .practiceId(practiceRecord.getId())
+                .status("ANALYZING")
+                .message("분석 요청이 접수되었습니다.")
+                .build();
     }
 }
