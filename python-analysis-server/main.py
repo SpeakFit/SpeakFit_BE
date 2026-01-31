@@ -30,6 +30,15 @@ app = FastAPI()
 class AnalyzeRequest(BaseModel):
     practiceId: int
     audioUrl: str
+class FeedbackRequest(BaseModel):
+    feedbackId: int
+    avgWpm: float
+    avgPitch: float
+    avgIntensity: float
+    avgZcr: float
+    pauseRatio: float
+    startDate: str
+    endDate: str
 
 def analyze_voice_features(file_path):
     """오디오 파일에서 정량적 특징 추출 (Librosa 사용)"""
@@ -103,6 +112,32 @@ def generate_ai_summary(data):
         print(f"[Python] Gemini 호출 실패: {e}")
         return "AI 분석이 지연되고 있습니다. 잠시 후 다시 확인해주세요."
 
+def generate_comprehensive_feedback(data):
+    """Gemini를 사용한 종합 피드백 생성"""
+    if not model:
+        return "AI 모델 연결 불가: 더미 피드백입니다. 꾸준함이 돋보입니다!"
+
+    prompt = f"""
+    당신은 스피치 전문 코치입니다. 다음은 학생의 {data.startDate}부터 {data.endDate}까지의 연습 평균 데이터입니다.
+
+    [평균 데이터]
+    - 말하기 속도: {data.avgWpm:.1f} WPM (적정: 100~130)
+    - 목소리 높낮이: {data.avgPitch:.1f} Hz
+    - 목소리 크기: {data.avgIntensity:.1f} dB
+    - 쉼 비율: {data.pauseRatio*100:.1f}%
+    - 발음 정확도: {data.avgZcr:.4f}
+
+    [요청]
+    위 데이터를 바탕으로 학생의 전반적인 스피치 스타일을 진단하고, 앞으로 어떤 점을 보완하면 좋을지 따뜻하고 구체적인 조언을 3~4문장으로 작성해주세요.
+    격려하는 어조로 한국어로 작성해 주세요.
+    """
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        print(f"[Python] Gemini 피드백 생성 실패: {e}")
+        return "AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+
 @app.post("/analyze")
 def run_analysis(req: AnalyzeRequest):
     print(f"[ID: {req.practiceId}] 분석 요청 처리 중...")
@@ -123,6 +158,18 @@ def run_analysis(req: AnalyzeRequest):
 
     print(f"[ID: {req.practiceId}] 분석 완료")
     return features
+
+@app.post("/feedback/summary")
+def create_feedback_summary(req: FeedbackRequest):
+    print(f"[Feedback ID: {req.feedbackId}] 종합 피드백 요청 수신")
+
+    # 1. 전달받은 데이터를 바탕으로 Gemini 종합 피드백 생성
+    ai_feedback = generate_comprehensive_feedback(req)
+
+    print(f"[Feedback ID: {req.feedbackId}] 피드백 생성 완료")
+
+    # 2. 생성된 텍스트 리포트 반환
+    return {"aiFeedback": ai_feedback}
 
 if __name__ == "__main__":
     # 포트 5000에서 실행
