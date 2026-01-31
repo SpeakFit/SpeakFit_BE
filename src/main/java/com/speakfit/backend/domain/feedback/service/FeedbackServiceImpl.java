@@ -2,6 +2,7 @@ package com.speakfit.backend.domain.feedback.service;
 
 import com.speakfit.backend.domain.feedback.dto.req.GenerateFeedbackReq;
 import com.speakfit.backend.domain.feedback.dto.res.GenerateFeedbackRes;
+import com.speakfit.backend.domain.feedback.dto.res.GetFeedbackDetailRes;
 import com.speakfit.backend.domain.feedback.entity.Feedback;
 import com.speakfit.backend.domain.feedback.enums.FeedbackStatus;
 import com.speakfit.backend.domain.feedback.exception.FeedbackErrorCode;
@@ -112,5 +113,88 @@ public class FeedbackServiceImpl implements FeedbackService {
                 .mapToDouble(Double::doubleValue)
                 .average()
                 .orElse(0.0);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public GetFeedbackDetailRes getFeedbackDetail(Long feedbackId, Long userId) {
+
+        // 1. 피드백 조회 및 권한 확인
+        Feedback feedback = feedbackRepository.findById(feedbackId)
+                .orElseThrow(() -> new CustomException(FeedbackErrorCode.FEEDBACK_NOT_FOUND));
+
+        if (!feedback.getUser().getId().equals(userId)) {
+            throw new CustomException(FeedbackErrorCode.FEEDBACK_ACCESS_DENIED);
+        }
+
+        // 2. 분석 중인 경우 조기 반환
+        if (feedback.getStatus() != FeedbackStatus.COMPLETED) {
+            return GetFeedbackDetailRes.builder()
+                    .id(feedback.getId())
+                    .status(feedback.getStatus().toString())
+                    .message("AI가 최근 연습 기록들을 종합 분석하고 있습니다.")
+                    .build();
+        }
+
+        // 3. 기간 설정 (이번 주 vs 지난 주)
+        LocalDateTime thisWeekStart = feedback.getStartDate().atStartOfDay();
+        LocalDateTime thisWeekEnd = feedback.getEndDate().atTime(LocalTime.MAX);
+
+        // 지난 주 계산: 이번 주 기간만큼 뒤로 이동
+        long days = java.time.temporal.ChronoUnit.DAYS.between(feedback.getStartDate(), feedback.getEndDate()) + 1;
+        LocalDateTime lastWeekStart = thisWeekStart.minusDays(days);
+        LocalDateTime lastWeekEnd = thisWeekEnd.minusDays(days);
+
+        // 4. 이번 주 데이터 조회
+        List<PracticeRecord> thisWeekRecords = practiceRepository.findAllByUserAndStatusAndCreatedAtBetween(
+                feedback.getUser(), PracticeStatus.ANALYZED, thisWeekStart, thisWeekEnd
+        );
+
+        // 5. 지난 주 데이터 조회 (비교용)
+        List<PracticeRecord> lastWeekRecords = practiceRepository.findAllByUserAndStatusAndCreatedAtBetween(
+                feedback.getUser(), PracticeStatus.ANALYZED, lastWeekStart, lastWeekEnd
+        );
+
+        // 6. 평균값 계산 (Helper 메소드 활용)
+        GetFeedbackDetailRes.Metrics thisWeekMetrics = calculateMetrics(thisWeekRecords);
+        GetFeedbackDetailRes.Metrics lastWeekMetrics = calculateMetrics(lastWeekRecords);
+
+        // 7. 변화량(Highlights) 계산: (이번 주 - 지난 주)
+        GetFeedbackDetailRes.AnalysisHighlights highlights = GetFeedbackDetailRes.AnalysisHighlights.builder()
+                .wpmDiff(thisWeekMetrics.getAvgWpm() - lastWeekMetrics.getAvgWpm())
+                .pauseCountDiff(calculateAverage(thisWeekRecords, result -> (double) result.getPauseCount())
+                        - calculateAverage(lastWeekRecords, result -> (double) result.getPauseCount()))
+                .intensityDiff(thisWeekMetrics.getAvgIntensity() - lastWeekMetrics.getAvgIntensity())
+                .pitchDiff(thisWeekMetrics.getAvgPitch() - lastWeekMetrics.getAvgPitch())
+                .build();
+
+        // 8. 최종 응답 생성
+        return GetFeedbackDetailRes.builder()
+                .id(feedback.getId())
+                .status(feedback.getStatus().toString())
+                .startDate(feedback.getStartDate().toString())
+                .endDate(feedback.getEndDate().toString())
+                .comparisonData(GetFeedbackDetailRes.ComparisonData.builder()
+                        .thisWeek(thisWeekMetrics)
+                        .lastWeek(lastWeekMetrics)
+                        .build())
+                .analysisHighlights(highlights)
+                .aiFeedback(feedback.getAiFeedback())
+                .build();
+    }
+
+    // 연습 기록 목록을 바탕으로 메트릭 일괄 계산
+    private GetFeedbackDetailRes.Metrics calculateMetrics(List<PracticeRecord> records) {
+        if (records.isEmpty()) {
+            return GetFeedbackDetailRes.Metrics.builder()
+                    .avgWpm(0.0).avgPitch(0.0).avgIntensity(0.0).pauseRatio(0.0)
+                    .build();
+        }
+        return GetFeedbackDetailRes.Metrics.builder()
+                .avgWpm(calculateAverage(records, AnalysisResult::getAvgWpm))
+                .avgPitch(calculateAverage(records, AnalysisResult::getAvgPitch))
+                .avgIntensity(calculateAverage(records, AnalysisResult::getAvgIntensity))
+                .pauseRatio(calculateAverage(records, AnalysisResult::getPauseRatio))
+                .build();
     }
 }
