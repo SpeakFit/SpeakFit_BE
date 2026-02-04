@@ -14,4 +14,8 @@ public interface TermRepository extends JpaRepository<Term, Long> {
 
     // 필수 약관만 조회: 회원가입 필수 동의 검증에 유용
     List<Term> findByRequiredTrue();
+
+    boolean existsByTermType(TermType termType);
+
+    List<Term> findAllByOrderByIdAsc();
 }
