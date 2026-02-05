@@ -1,5 +1,6 @@
 package com.speakfit.backend.domain.term.service;
 
+import com.speakfit.backend.domain.term.dto.res.TermDetailGetRes;
 import com.speakfit.backend.domain.term.dto.res.TermsGetRes;
 import com.speakfit.backend.domain.term.exception.TermErrorCode;
 import com.speakfit.backend.domain.term.repository.TermRepository;
@@ -36,6 +37,19 @@ public class TermQueryServiceImpl implements TermQueryService {
 
         return TermsGetRes.builder()
                 .terms(items)
+                .build();
+    }
+
+    // 약관 상세 조회 api
+    @Override
+    public TermDetailGetRes getTermDetail(Long termId){
+        var term = termRepository.findById(termId)
+                .orElseThrow(()->new CustomException(TermErrorCode.TERM_NOT_FOUND));
+
+        return TermDetailGetRes.builder()
+                .termId(term.getId())
+                .title(term.getTitle())
+                .content(term.getContent())
                 .build();
     }
 }
