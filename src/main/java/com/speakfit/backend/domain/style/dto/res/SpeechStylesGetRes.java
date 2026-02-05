@@ -15,7 +15,7 @@ public class SpeechStylesGetRes {
     @Builder
     public static class StyleItem{
         private Long styleId;
-        private String name;
+        private String description;
         private String sampleAudioUrl;
     }
 }

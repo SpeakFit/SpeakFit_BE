@@ -1,0 +1,4 @@
+package com.speakfit.backend.domain.style.service;
+
+public interface SpeechStyleQueryService {
+}
