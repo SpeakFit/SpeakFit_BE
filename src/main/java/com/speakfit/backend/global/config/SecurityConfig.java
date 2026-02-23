@@ -39,7 +39,7 @@ public class SecurityConfig {
                                 "/v3/api-docs/**",
                                 "/swagger-ui.html"
                         ).permitAll()
-                        .requestMatchers("/api/terms/**").permitAll()
+                        .requestMatchers("/api/terms/**", "/api/styles/**").permitAll()
                         .requestMatchers("/auth/**").permitAll()
                         // PRIVATE
                         .requestMatchers("/api/practices",

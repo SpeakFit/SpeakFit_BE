@@ -33,4 +33,7 @@ public class SpeechStyle {
 
     @Column(length = 255)
     private String description;
+
+    @Column(name = "sample_audio_url", length = 500, nullable = false)
+    private String sampleAudioUrl;
 }
