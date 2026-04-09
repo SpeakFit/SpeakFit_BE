@@ -29,6 +29,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -76,12 +77,45 @@ public class PracticeServiceImpl implements PracticeService {
         // 5. DB에 저장
         PracticeRecord savedRecord = practiceRepository.save(practiceRecord);
 
-        // 6. Entity -> DTO 변환 및 반환
+        // 6. markedContent 파싱 로직 (간단 구현 버전)
+        List<StartPracticeRes.ContentRes> contentList = parseMarkedContent(script.getMarkedContent());
+
+        // 7. WebSocket URL 생성
+        String webSocketUrl = "ws://api.speakfit.com/ws/practice/" + savedRecord.getId();
+
+        // 8. Entity -> DTO 변환 및 반환
         return StartPracticeRes.builder()
                 .practiceId(savedRecord.getId())
+                .title(script.getTitle())
+                .webSocketUrl(webSocketUrl)
                 .status(savedRecord.getStatus().toString())
+                .contentList(contentList)
+                .createdAt(savedRecord.getCreatedAt())
                 .build();
+    }
 
+    // markedContent를 단어 단위로 쪼개어 기호 여부를 판단하는 헬퍼 메서드
+    private List<StartPracticeRes.ContentRes> parseMarkedContent(String markedContent) {
+        List<StartPracticeRes.ContentRes> list = new java.util.ArrayList<>();
+        if (markedContent == null || markedContent.isEmpty()) return list;
+
+        String[] tokens = markedContent.split("\\s+");
+        int index = 0;
+        for (String token : tokens) {
+            boolean hasBreak = token.contains("/");
+            boolean isEmphasis = token.contains("*");
+            String cleanWord = token.replace("/", "").replace("*", "");
+
+            if (!cleanWord.isEmpty()) {
+                list.add(StartPracticeRes.ContentRes.builder()
+                        .index(index++)
+                        .word(cleanWord)
+                        .hasBreak(hasBreak)
+                        .isEmphasis(isEmphasis)
+                        .build());
+            }
+        }
+        return list;
     }
 
     // 발표 연습 종료 서비스 구현
