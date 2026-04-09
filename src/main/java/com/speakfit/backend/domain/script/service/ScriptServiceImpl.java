@@ -6,14 +6,15 @@ import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
 import com.speakfit.backend.domain.script.entity.Script;
+import com.speakfit.backend.domain.script.enums.ScriptType;
 import com.speakfit.backend.domain.script.exception.ScriptErrorCode;
 import com.speakfit.backend.domain.script.repository.ScriptRepository;
 import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.domain.user.repository.UserRepository;
+import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.speakfit.backend.global.apiPayload.exception.CustomException;
 
 import java.util.List;
 
@@ -28,22 +29,23 @@ public class ScriptServiceImpl implements ScriptService {
     // 발표 대본 추가 기능 서비스 구현
     @Override
     @Transactional
-    public AddScriptRes addScript(AddScriptReq.Request req,Long userId) {
+    public AddScriptRes addScript(AddScriptReq.Request req, Long userId) {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND));
 
-        // 1.dto->entity 변환
+        // 1. dto -> entity 변환 (기본 타입을 TEXT로 설정)
         Script script = Script.builder()
                 .title(req.getTitle())
                 .content(req.getContent())
+                .scriptType(ScriptType.TEXT) // 최신화된 엔티티 필드 반영
                 .user(user)
                 .build();
 
-        // 2.db 저장
+        // 2. db 저장
         Script savedScript = scriptRepository.save(script);
 
-        // 3. entity->res dto 변환 및 반환
+        // 3. entity -> res dto 변환 및 반환
         return AddScriptRes.builder()
                 .id(savedScript.getId())
                 .title(savedScript.getTitle())
@@ -52,7 +54,7 @@ public class ScriptServiceImpl implements ScriptService {
                 .build();
     }
 
-    //발표 대본 목록 조회 기능 서비스 구현
+    // 발표 대본 목록 조회 기능 서비스 구현
     @Override
     public List<GetScriptListRes> getScripts(Long userId) {
 
@@ -66,22 +68,23 @@ public class ScriptServiceImpl implements ScriptService {
                         .id(script.getId())
                         .title(script.getTitle())
                         .content(script.getContent())
+                        .scriptType(script.getScriptType()) // 추가
                         .createdAt(script.getCreatedAt())
                         .build())
                 .toList();
-    }
+        }
 
     // 발표 대본 상세 조회 기능 서비스 구현
     @Override
-    public GetScriptDetailRes getScript(Long scriptId,Long userId) {
+    public GetScriptDetailRes getScript(Long scriptId, Long userId) {
         // 1. DB에서 대본 찾기
-        Script script=scriptRepository.findById(scriptId)
-                .orElseThrow(()-> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
+        Script script = scriptRepository.findById(scriptId)
+                .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
+
         // 2. 사용자 권한 체크 로직
-        if(!script.getUser().getId().equals(userId)) {
+        if (!script.getUser().getId().equals(userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
-
 
         // 3. Entity -> DTO 변환 및 반환
         return GetScriptDetailRes.builder()
@@ -95,13 +98,13 @@ public class ScriptServiceImpl implements ScriptService {
     // 발표 대본 삭제 기능 서비스 구현
     @Override
     @Transactional
-    public DeleteScriptRes deleteScript(Long scriptId,Long userId) {
+    public DeleteScriptRes deleteScript(Long scriptId, Long userId) {
         // 1. DB에서 대본 찾기
         Script script = scriptRepository.findById(scriptId)
-                .orElseThrow(()->new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
+                .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
 
         // 2. 사용자 권한 체크
-        if(!script.getUser().getId().equals(userId)) {
+        if (!script.getUser().getId().equals(userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
 
