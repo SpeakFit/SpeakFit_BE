@@ -9,7 +9,7 @@ import com.speakfit.backend.domain.feedback.exception.FeedbackErrorCode;
 import com.speakfit.backend.domain.feedback.repository.FeedbackRepository;
 import com.speakfit.backend.domain.practice.entity.AnalysisResult;
 import com.speakfit.backend.domain.practice.entity.PracticeRecord;
-import com.speakfit.backend.domain.practice.enums.PracticeStatus;
+import com.speakfit.backend.domain.practice.enums.Status;
 import com.speakfit.backend.domain.practice.exception.PracticeErrorCode;
 import com.speakfit.backend.domain.practice.repository.AnalysisResultRepository;
 import com.speakfit.backend.domain.practice.repository.PracticeRepository;
@@ -58,7 +58,7 @@ public class FeedbackServiceImpl implements FeedbackService {
 
         // 3. 해당 기간의 분석 완료된 연습 기록 조회
         List<PracticeRecord> records = practiceRepository.findAllByUserAndStatusAndCreatedAtBetween(
-                user, PracticeStatus.ANALYZED, startDateTime, endDateTime
+                user, Status.ANALYZED, startDateTime, endDateTime
         );
 
         if (records.isEmpty()) {
@@ -147,12 +147,12 @@ public class FeedbackServiceImpl implements FeedbackService {
 
         // 4. 이번 주 데이터 조회
         List<PracticeRecord> thisWeekRecords = practiceRepository.findAllByUserAndStatusAndCreatedAtBetween(
-                feedback.getUser(), PracticeStatus.ANALYZED, thisWeekStart, thisWeekEnd
+                feedback.getUser(), Status.ANALYZED, thisWeekStart, thisWeekEnd
         );
 
         // 5. 지난 주 데이터 조회 (비교용)
         List<PracticeRecord> lastWeekRecords = practiceRepository.findAllByUserAndStatusAndCreatedAtBetween(
-                feedback.getUser(), PracticeStatus.ANALYZED, lastWeekStart, lastWeekEnd
+                feedback.getUser(), Status.ANALYZED, lastWeekStart, lastWeekEnd
         );
 
         // 6. 평균값 계산 (Helper 메소드 활용)

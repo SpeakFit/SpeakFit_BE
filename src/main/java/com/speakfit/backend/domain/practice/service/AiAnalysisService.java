@@ -4,7 +4,7 @@ import com.speakfit.backend.domain.practice.dto.res.PythonAnalysisRes;
 import com.speakfit.backend.domain.practice.entity.AiAnalysisResult;
 import com.speakfit.backend.domain.practice.entity.AnalysisResult;
 import com.speakfit.backend.domain.practice.entity.PracticeRecord;
-import com.speakfit.backend.domain.practice.enums.PracticeStatus;
+import com.speakfit.backend.domain.practice.enums.Status;
 import com.speakfit.backend.domain.practice.repository.AiAnalysisResultRepository;
 import com.speakfit.backend.domain.practice.repository.AnalysisResultRepository;
 import com.speakfit.backend.domain.practice.repository.PracticeRepository;
@@ -70,7 +70,7 @@ public class AiAnalysisService {
         aiAnalysisResultRepository.save(aiAnalysisResult);
 
         // 3. 상태 변경
-        record.updateStatus(PracticeStatus.ANALYZED);
+        record.updateStatus(Status.ANALYZED);
         practiceRepository.save(record);
 
         System.out.println("분석 성공 & 데이터 업데이트 완료 (ID: " + practiceId + ")");
@@ -81,7 +81,7 @@ public class AiAnalysisService {
     public void handleAnalysisFailure(Long practiceId) {
         practiceRepository.findById(practiceId).ifPresent(record -> {
             // 분석 실패 시 상태를 FAILED로 변경하여 사용자에게 알림
-            record.updateStatus(PracticeStatus.FAILED);
+            record.updateStatus(Status.FAILED);
             practiceRepository.save(record);
         });
     }
