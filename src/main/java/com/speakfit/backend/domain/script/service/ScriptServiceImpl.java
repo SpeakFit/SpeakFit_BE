@@ -86,12 +86,31 @@ public class ScriptServiceImpl implements ScriptService {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
 
-        // 3. Entity -> DTO 변환 및 반환
+        // 3. PPT 정보 구성 (PPT 타입일 때만)
+        GetScriptDetailRes.PptInfoRes pptInfo = null;
+        if (script.getScriptType() == ScriptType.PPT) {
+            List<GetScriptDetailRes.PptSlideRes> slideResList = script.getPptSlides().stream()
+                    .map(slide -> GetScriptDetailRes.PptSlideRes.builder()
+                            .page(slide.getSlideIndex())
+                            .imageUrl(slide.getImageUrl())
+                            .build())
+                    .toList();
+
+            pptInfo = GetScriptDetailRes.PptInfoRes.builder()
+                    .pptUrl(script.getPptUrl())
+                    .slides(slideResList)
+                    .build();
+        }
+
+        // 4. Entity -> DTO 변환 및 반환
         return GetScriptDetailRes.builder()
                 .id(script.getId())
                 .title(script.getTitle())
                 .content(script.getContent())
+                .markedContent(script.getMarkedContent())
+                .scriptType(script.getScriptType())
                 .createdAt(script.getCreatedAt())
+                .pptInfo(pptInfo) // PPT가 없으면 null로 전달
                 .build();
     }
 
