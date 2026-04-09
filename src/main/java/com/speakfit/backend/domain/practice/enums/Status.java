@@ -6,7 +6,7 @@ import lombok.RequiredArgsConstructor;
 // 발표 연습 기록 상태 enum
 @Getter
 @RequiredArgsConstructor
-public enum PracticeStatus {
+public enum Status {
     RECORDING("녹음중"),
     COMPLETED("연습 완료"),
     ANALYZING("분석중"),

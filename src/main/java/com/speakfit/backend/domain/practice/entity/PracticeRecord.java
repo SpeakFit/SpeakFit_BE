@@ -1,6 +1,6 @@
 package com.speakfit.backend.domain.practice.entity;
 
-import com.speakfit.backend.domain.practice.enums.PracticeStatus;
+import com.speakfit.backend.domain.practice.enums.Status;
 import com.speakfit.backend.domain.script.entity.Script;
 import com.speakfit.backend.domain.style.entity.SpeechStyle;
 import com.speakfit.backend.domain.user.entity.User;
@@ -43,18 +43,17 @@ public class PracticeRecord extends BaseEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
-    private PracticeStatus status;
+    private Status status; // Status enum 적용
 
     @Column(name = "audience_type")
-    private String audienceType; // String (Varchar) - Enum 필요시 추후 변경
+    private String audienceType;
 
     @Column(name = "audience_understanding")
-    private String audienceUnderstanding; // String (Varchar)
+    private String audienceUnderstanding;
 
     @Column(name = "speech_information")
-    private String speechInformation; // String (Varchar)
+    private String speechInformation;
 
-    // 연관관계 매핑 (1:1 및 1:N)
     @OneToOne(mappedBy = "practiceRecord", cascade = CascadeType.ALL, orphanRemoval = true)
     private AnalysisResult analysisResult;
 
@@ -65,14 +64,13 @@ public class PracticeRecord extends BaseEntity {
     @OneToMany(mappedBy = "practiceRecord", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<PracticeIssue> practiceIssues = new ArrayList<>();
 
-    // 상태 변경 편의 메서드
     public void stopRecording(String audioUrl, Double time) {
         this.audioUrl = audioUrl;
         this.time = time;
-        this.status = PracticeStatus.COMPLETED;
+        this.status = Status.COMPLETED;
     }
 
-    public void updateStatus(PracticeStatus status) {
+    public void updateStatus(Status status) {
         this.status = status;
     }
 }
