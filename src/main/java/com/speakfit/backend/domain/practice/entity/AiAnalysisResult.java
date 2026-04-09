@@ -13,7 +13,6 @@ import lombok.*;
 public class AiAnalysisResult extends BaseEntity {
 
     @Id
-    @Column(name = "record_id")
     private Long recordId;
 
     @OneToOne(fetch = FetchType.LAZY)
@@ -24,7 +23,31 @@ public class AiAnalysisResult extends BaseEntity {
     @Column(name = "ai_summary", columnDefinition = "TEXT")
     private String aiSummary;
 
-    public void updateSummary(String aiSummary) {
-        this.aiSummary = aiSummary;
-    }
+    @Column(name = "wpm_summary", length = 255)
+    private String wpmSummary;
+
+    @Column(name = "wpm_feedback", columnDefinition = "TEXT")
+    private String wpmFeedback;
+
+    @Column(name = "energy_summary", length = 255)
+    private String energySummary;
+
+    @Column(name = "energy_feedback", columnDefinition = "TEXT")
+    private String energyFeedback;
+
+    @Column(name = "pause_feedback", columnDefinition = "TEXT")
+    private String pauseFeedback;
+
+    @Column(name = "symbol_feedback", columnDefinition = "TEXT")
+    private String symbolFeedback;
+
+    @Column(name = "goal_similarity_score")
+    private Double goalSimilarityScore;
+
+    @Column(name = "goal_summary", length = 255)
+    private String goalSummary;
+
+    @Column(name = "goal_feedback", columnDefinition = "TEXT")
+    private String goalFeedback;
+
 }

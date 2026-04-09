@@ -1,5 +1,6 @@
 package com.speakfit.backend.domain.practice.entity;
 
+import com.speakfit.backend.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -9,15 +10,14 @@ import lombok.*;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Table(name = "analysis_result")
-public class AnalysisResult {
+public class AnalysisResult extends BaseEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "id")
-    private Long id;
+    private Long recordId;
 
     @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "record_id", nullable = false)
+    @MapsId
+    @JoinColumn(name = "record_id")
     private PracticeRecord practiceRecord;
 
     @Column(name = "avg_wpm")
@@ -61,7 +61,7 @@ public class AnalysisResult {
         this.wpmDiff = wpmDiff;
         this.pitchDiff = pitchDiff;
         this.intensityDiff = intensityDiff;
-        this.zcrDiff = zcrDiff;
+        this.zcrDiff = zcrDiff; // SQL에 맞춰 zcrDiff로 통일
         this.pauseCount = pauseCount;
     }
 }

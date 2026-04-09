@@ -2,10 +2,14 @@ package com.speakfit.backend.domain.practice.entity;
 
 import com.speakfit.backend.domain.practice.enums.PracticeStatus;
 import com.speakfit.backend.domain.script.entity.Script;
+import com.speakfit.backend.domain.style.entity.SpeechStyle;
 import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Getter
@@ -27,34 +31,47 @@ public class PracticeRecord extends BaseEntity {
     @JoinColumn(name = "script_id", nullable = false)
     private Script script;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "style_id", nullable = false)
+    private SpeechStyle speechStyle;
+
     @Column(name = "audio_url", columnDefinition = "TEXT")
-    private String audioUrl; // 초기 생성 시에는 null 일 수 있음
+    private String audioUrl;
 
     @Column(name = "time")
-    private Double time; // 연습 시간 (초 단위 예상)
+    private Double time;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     private PracticeStatus status;
 
-    // 연습 종료 시 업데이트를 위한 편의 메서드
-    public void stopPractice(String audioUrl, Double time) {
+    @Column(name = "audience_type")
+    private String audienceType; // String (Varchar) - Enum 필요시 추후 변경
+
+    @Column(name = "audience_understanding")
+    private String audienceUnderstanding; // String (Varchar)
+
+    @Column(name = "speech_information")
+    private String speechInformation; // String (Varchar)
+
+    // 연관관계 매핑 (1:1 및 1:N)
+    @OneToOne(mappedBy = "practiceRecord", cascade = CascadeType.ALL, orphanRemoval = true)
+    private AnalysisResult analysisResult;
+
+    @OneToOne(mappedBy = "practiceRecord", cascade = CascadeType.ALL, orphanRemoval = true)
+    private AiAnalysisResult aiAnalysisResult;
+
+    @Builder.Default
+    @OneToMany(mappedBy = "practiceRecord", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<PracticeIssue> practiceIssues = new ArrayList<>();
+
+    // 상태 변경 편의 메서드
+    public void stopRecording(String audioUrl, Double time) {
         this.audioUrl = audioUrl;
         this.time = time;
         this.status = PracticeStatus.COMPLETED;
     }
 
-    // 분석 요청시 업데이트를 위한 편의 메서드
-    public void startAnalysis() {
-        this.status = PracticeStatus.ANALYZING;
-    }
-
-    // 분석 완료시 업데이트를 위한 편의 메서드
-    public void finishAnalysis() {
-        this.status = PracticeStatus.ANALYZED;
-    }
-
-    // 분석 요청 후 업데이트를 위한 편의 메서드
     public void updateStatus(PracticeStatus status) {
         this.status = status;
     }
