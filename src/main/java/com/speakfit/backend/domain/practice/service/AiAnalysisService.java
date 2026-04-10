@@ -8,6 +8,8 @@ import com.speakfit.backend.domain.practice.enums.Status;
 import com.speakfit.backend.domain.practice.repository.AiAnalysisResultRepository;
 import com.speakfit.backend.domain.practice.repository.AnalysisResultRepository;
 import com.speakfit.backend.domain.practice.repository.PracticeRepository;
+import com.speakfit.backend.domain.script.entity.Script;
+import com.speakfit.backend.domain.style.entity.SpeechStyle;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -16,7 +18,6 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -27,76 +28,117 @@ public class AiAnalysisService {
     private final AiAnalysisResultRepository aiAnalysisResultRepository;
     private final WebClient webClient;
 
-    //비동기 분석 및 결과 저장 로직
+    // 비동기 분석 및 결과 저장 로직 구현
     @Async
     @Transactional
     public void processAnalysisAsync(Long practiceId, String audioUrl) {
         try {
-            // 1. 파이썬 서버에 분석 요청
-            PythonAnalysisRes pythonData = requestPythonAnalysis(practiceId, audioUrl);
+            PracticeRecord record = practiceRepository.findById(practiceId).orElseThrow();
+            
+            // 1. 파이썬 분석 서버에 데이터 요청 (모든 컨텍스트 포함)
+            PythonAnalysisRes pythonData = requestPythonAnalysis(record, audioUrl);
 
-            // 2. 응답 데이터가 있으면 결과 저장
+            // 2. 응답이 성공적이면 결과 저장
             if (pythonData != null) {
                 saveResults(practiceId, pythonData);
             }
         } catch (Exception e) {
             System.err.println("비동기 분석 실패: " + e.getMessage());
-            // 3. 에러 발생 시 실패 상태로 변경
             handleAnalysisFailure(practiceId);
         }
     }
 
+    // 파이썬 서버로부터 받은 분석 결과를 DB에 저장
     @Transactional
     public void saveResults(Long practiceId, PythonAnalysisRes data) {
         PracticeRecord record = practiceRepository.findById(practiceId).orElseThrow();
 
-        // 1. 정량 결과 저장 (Update or Insert)
+        // 1. 정량 지표 데이터(AnalysisResult) 저장/업데이트
         AnalysisResult analysisResult = analysisResultRepository.findByPracticeRecord(record)
                 .orElse(AnalysisResult.builder().practiceRecord(record).build());
 
-        // 데이터 업데이트 (새로 만든 객체든 기존 객체든 값을 채워넣음)
         analysisResult.updateData(
                 data.getAvgWpm(), data.getAvgPitch(), data.getAvgIntensity(), data.getAvgZcr(),
                 data.getPauseRatio(), data.getWpmDiff(), data.getPitchDiff(),
                 data.getIntensityDiff(), data.getZcrDiff(), data.getPauseCount()
         );
-        analysisResultRepository.save(analysisResult); // 있으면 update 쿼리, 없으면 insert 쿼리 나감
+        analysisResultRepository.save(analysisResult);
 
-        // 2. AI 총평 저장 (Update or Insert)
-        AiAnalysisResult aiAnalysisResult = aiAnalysisResultRepository.findByPracticeRecord(record)
-                .orElse(AiAnalysisResult.builder().practiceRecord(record).build());
+        // 2. AI 상세 피드백(AiAnalysisResult) 저장
+        // 매번 새로 생성하여 AI 분석의 최신성을 보장 (MapsId 구조이므로 recordId 명시)
+        AiAnalysisResult aiResult = AiAnalysisResult.builder()
+                .recordId(record.getId())
+                .practiceRecord(record)
+                .aiSummary(data.getAiSummary())
+                .wpmSummary(data.getWpmSummary())
+                .wpmFeedback(data.getWpmFeedback())
+                .energySummary(data.getEnergySummary())
+                .energyFeedback(data.getEnergyFeedback())
+                .pauseFeedback(data.getPauseFeedback())
+                .symbolFeedback(data.getSymbolFeedback())
+                .goalSimilarityScore(data.getGoalSimilarityScore())
+                .goalSummary(data.getGoalSummary())
+                .goalFeedback(data.getGoalFeedback())
+                .build();
+        
+        aiAnalysisResultRepository.save(aiResult);
 
-        aiAnalysisResult.updateSummary(data.getAiSummary());
-        aiAnalysisResultRepository.save(aiAnalysisResult);
-
-        // 3. 상태 변경
+        // 3. 연습 기록 상태를 ANALYZED로 최종 변경
         record.updateStatus(Status.ANALYZED);
         practiceRepository.save(record);
-
-        System.out.println("분석 성공 & 데이터 업데이트 완료 (ID: " + practiceId + ")");
     }
-
 
     @Transactional
     public void handleAnalysisFailure(Long practiceId) {
         practiceRepository.findById(practiceId).ifPresent(record -> {
-            // 분석 실패 시 상태를 FAILED로 변경하여 사용자에게 알림
             record.updateStatus(Status.FAILED);
             practiceRepository.save(record);
         });
     }
 
-    private PythonAnalysisRes requestPythonAnalysis(Long practiceId, String audioUrl) {
+    // 파이썬 분석 서버와의 실제 통신 로직 완성
+    private PythonAnalysisRes requestPythonAnalysis(PracticeRecord record, String audioUrl) {
+        // 파이썬 서버가 분석에 필요한 모든 데이터를 Map에 담음
         Map<String, Object> body = new HashMap<>();
-        body.put("practiceId", practiceId);
+        body.put("practiceId", record.getId());
         body.put("audioUrl", audioUrl);
+        body.put("markedContent", record.getScript().getMarkedContent()); // 낭독 기호 대본
+        body.put("audienceType", record.getAudienceType().toString()); // Enum -> String
+        body.put("audienceUnderstanding", record.getAudienceUnderstanding().toString());
+        body.put("speechInformation", record.getSpeechInformation().toString());
+        body.put("styleType", record.getSpeechStyle().getStyleType()); // 스타일 정보
 
-        // WebClientConfig에 설정된 Base URL을 사용합니다.
+        // 파이썬 서버의 /analyze 엔드포인트 호출
         return webClient.post()
                 .uri("/analyze")
                 .bodyValue(body)
                 .retrieve()
                 .bodyToMono(PythonAnalysisRes.class)
-                .block(); // 비동기 스레드 내부이므로 block()을 통한 동기 대기가 가능합니다.
+                .block(); // 비동기 스레드 내에서 호출되므로 block() 사용 가능
+    }
+
+    // 파이썬 서버에 대본 기호 생성(Marking) 요청
+    public String generateMarkedContent(Script script, SpeechStyle style, PracticeRecord record) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("content", script.getContent());
+        body.put("style", style.getStyleType());
+        body.put("audienceType", record.getAudienceType().toString());
+        body.put("audienceUnderstanding", record.getAudienceUnderstanding().toString());
+        body.put("speechInformation", record.getSpeechInformation().toString());
+
+        try {
+            // /scripts/mark 엔드포인트 호출
+            Map<String, Object> response = webClient.post()
+                    .uri("/scripts/mark")
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            return response != null ? (String) response.get("markedContent") : null;
+        } catch (Exception e) {
+            System.err.println("AI 기호 대본 생성 실패: " + e.getMessage());
+            return null;
+        }
     }
 }

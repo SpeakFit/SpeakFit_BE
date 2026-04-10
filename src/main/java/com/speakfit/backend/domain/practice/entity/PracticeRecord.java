@@ -1,5 +1,8 @@
 package com.speakfit.backend.domain.practice.entity;
 
+import com.speakfit.backend.domain.practice.enums.AudienceType;
+import com.speakfit.backend.domain.practice.enums.AudienceUnderstanding;
+import com.speakfit.backend.domain.practice.enums.SpeechInformation;
 import com.speakfit.backend.domain.practice.enums.Status;
 import com.speakfit.backend.domain.script.entity.Script;
 import com.speakfit.backend.domain.style.entity.SpeechStyle;
@@ -32,7 +35,7 @@ public class PracticeRecord extends BaseEntity {
     private Script script;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "style_id", nullable = false)
+    @JoinColumn(name = "style_id", nullable = true)
     private SpeechStyle speechStyle;
 
     @Column(name = "audio_url", columnDefinition = "TEXT")
@@ -43,16 +46,19 @@ public class PracticeRecord extends BaseEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
-    private Status status; // Status enum 적용
+    private Status status;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "audience_type")
-    private String audienceType;
+    private AudienceType audienceType;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "audience_understanding")
-    private String audienceUnderstanding;
+    private AudienceUnderstanding audienceUnderstanding;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "speech_information")
-    private String speechInformation;
+    private SpeechInformation speechInformation;
 
     @OneToOne(mappedBy = "practiceRecord", cascade = CascadeType.ALL, orphanRemoval = true)
     private AnalysisResult analysisResult;
@@ -72,5 +78,9 @@ public class PracticeRecord extends BaseEntity {
 
     public void updateStatus(Status status) {
         this.status = status;
+    }
+
+    public void selectStyle(SpeechStyle speechStyle) {
+        this.speechStyle = speechStyle;
     }
 }

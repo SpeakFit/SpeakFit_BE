@@ -1,5 +1,6 @@
 package com.speakfit.backend.domain.practice.entity;
 
+import com.speakfit.backend.domain.practice.enums.DetailStatus;
 import com.speakfit.backend.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
@@ -32,6 +33,7 @@ public class PracticeDetail extends BaseEntity {
     @Column(name = "confidence")
     private Double confidence;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "status")
-    private String status; // NORMAL, FAST, SLOW 등
+    private DetailStatus status;
 }
