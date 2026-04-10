@@ -31,11 +31,10 @@ public class PracticeController {
 
     // 2. 추천 또는 선택한 발표 스타일 확정
     @PostMapping("/practices/{practiceId}/select-style")
-    public ApiResponse<String> selectStyle(@PathVariable @Positive Long practiceId,
+    public ApiResponse<SelectStyleRes> selectStyle(@PathVariable @Positive Long practiceId,
                                            @RequestBody @Valid SelectStyleReq.Request request,
                                            @AuthenticationPrincipal AuthPrincipal authPrincipal) {
-        practiceService.selectStyle(practiceId, request, authPrincipal.getUserId());
-        return ApiResponse.onSuccess(SuccessCode.OK, "발표 스타일이 성공적으로 선택되었습니다.");
+        return ApiResponse.onSuccess(SuccessCode.OK, practiceService.selectStyle(practiceId, request, authPrincipal.getUserId()));
     }
 
     // 3. 발표 연습 시작 (상태 변경 및 정보 반환)

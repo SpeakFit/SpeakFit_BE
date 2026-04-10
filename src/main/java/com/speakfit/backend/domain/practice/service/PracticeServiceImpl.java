@@ -89,7 +89,7 @@ public class PracticeServiceImpl implements PracticeService {
     // 추천 또는 선택한 발표 스타일 확정 및 낭독 기호 생성 서비스 구현
     @Override
     @Transactional
-    public void selectStyle(Long practiceId, SelectStyleReq.Request req, Long userId) {
+    public SelectStyleRes selectStyle(Long practiceId, SelectStyleReq.Request req, Long userId) {
         // 1. 연습 기록 조회 및 권한 체크
         PracticeRecord record = practiceRepository.findById(practiceId)
                 .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
@@ -110,6 +110,35 @@ public class PracticeServiceImpl implements PracticeService {
             record.getScript().updateMarkedContent(markedContent);
             scriptRepository.save(record.getScript());
         }
+
+        // 4. 낭독 가이드(contentList) 생성 및 반환
+        List<SelectStyleRes.ContentRes> contentList = parseMarkedContentToSelectStyleRes(record.getScript().getMarkedContent());
+        
+        return SelectStyleRes.builder()
+                .practiceId(record.getId())
+                .contentList(contentList)
+                .build();
+    }
+
+    private List<SelectStyleRes.ContentRes> parseMarkedContentToSelectStyleRes(String markedContent) {
+        List<SelectStyleRes.ContentRes> list = new ArrayList<>();
+        if (markedContent == null) return list;
+        String[] tokens = markedContent.split("\\s+");
+        int index = 0;
+        for (String token : tokens) {
+            boolean hasBreak = token.contains("/");
+            boolean isEmphasis = token.contains("*");
+            String cleanWord = token.replace("/", "").replace("*", "");
+            if (!cleanWord.isEmpty()) {
+                list.add(SelectStyleRes.ContentRes.builder()
+                        .index(index++)
+                        .word(cleanWord)
+                        .hasBreak(hasBreak)
+                        .isEmphasis(isEmphasis)
+                        .build());
+            }
+        }
+        return list;
     }
 
     // 발표 연습 시작 (실제 녹음/분석 활성화) 서비스 구현
