@@ -56,4 +56,9 @@ public class Script extends BaseEntity {
             pptSlide.setScript(this);
         }
     }
+
+    // 낭독 기호 대본 업데이트 메서드
+    public void updateMarkedContent(String markedContent) {
+        this.markedContent = markedContent;
+    }
 }

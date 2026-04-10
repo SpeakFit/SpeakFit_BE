@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 @Getter
 @RequiredArgsConstructor
 public enum Status {
+    READY("연습 준비"), // 정보 입력 후 시작 전 상태
     RECORDING("녹음중"),
     COMPLETED("연습 완료"),
     ANALYZING("분석중"),

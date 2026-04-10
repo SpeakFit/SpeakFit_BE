@@ -1,5 +1,6 @@
 package com.speakfit.backend.domain.practice.dto.req;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
@@ -9,6 +10,7 @@ public class StopPracticeReq {
 
     @Getter
     @Setter
+    @Schema(name = "StopPracticeRequest")
     public static class Request {
         @NotNull(message = "녹음 파일은 필수입니다.")
         private MultipartFile audio;

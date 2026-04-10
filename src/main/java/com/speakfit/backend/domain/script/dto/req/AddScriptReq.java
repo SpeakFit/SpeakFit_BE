@@ -1,5 +1,6 @@
 package com.speakfit.backend.domain.script.dto.req;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
@@ -8,6 +9,7 @@ import lombok.NoArgsConstructor;
 public class AddScriptReq {
     @Getter
     @NoArgsConstructor
+    @Schema(name = "AddScriptRequest")
     public static class Request {
 
         @NotBlank(message = "대본 제목은 필수입니다.")
