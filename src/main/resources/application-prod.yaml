@@ -7,3 +7,5 @@ spring:
 app:
   cookie:
     secure: true
+  websocket:
+    base-url: ${WS_BASE_URL}

@@ -17,6 +17,7 @@ import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.domain.user.repository.UserRepository;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -44,6 +45,9 @@ public class PracticeServiceImpl implements PracticeService {
     private final PracticeIssueRepository practiceIssueRepository;
     private final PracticeDetailRepository practiceDetailRepository;
     private final AiAnalysisService aiAnalysisService;
+
+    @Value("${app.websocket.base-url}")
+    private String webSocketBaseUrl;
 
     // 발표 연습 정보값 입력 및 스타일 추천 서비스 구현
     @Override
@@ -158,7 +162,7 @@ public class PracticeServiceImpl implements PracticeService {
 
         // 3. 실시간 분석을 위한 웹소켓 URL 및 대본 단어 리스트 구성
         List<StartPracticeRes.ContentRes> contentList = parseMarkedContent(record.getScript().getMarkedContent());
-        String webSocketUrl = "ws://api.speakfit.com/ws/practice/" + record.getId();
+        String webSocketUrl = webSocketBaseUrl + record.getId();
 
         // 4. 시작 정보 반환
         return StartPracticeRes.builder()
