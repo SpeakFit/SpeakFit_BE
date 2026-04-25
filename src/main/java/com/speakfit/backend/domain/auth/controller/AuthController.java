@@ -1,15 +1,10 @@
 package com.speakfit.backend.domain.auth.controller;
 
 import com.speakfit.backend.domain.auth.dto.req.LoginReq;
-import com.speakfit.backend.domain.auth.dto.req.PhoneSendReq;
-import com.speakfit.backend.domain.auth.dto.req.PhoneVerifyReq;
 import com.speakfit.backend.domain.auth.dto.req.SignUpReq;
 import com.speakfit.backend.domain.auth.dto.res.LoginRes;
-import com.speakfit.backend.domain.auth.dto.res.PhoneSendRes;
-import com.speakfit.backend.domain.auth.dto.res.PhoneVerifyRes;
 import com.speakfit.backend.domain.auth.dto.res.SignUpRes;
 import com.speakfit.backend.domain.auth.service.AuthService;
-import com.speakfit.backend.domain.auth.service.PhoneVerificationService;
 import com.speakfit.backend.global.apiPayload.response.ApiResponse;
 import com.speakfit.backend.global.apiPayload.response.code.SuccessCode;
 import com.speakfit.backend.global.util.CookieUtil;
@@ -24,7 +19,6 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final AuthService authService;
-    private final PhoneVerificationService phoneVerificationService;
     private final CookieUtil cookieUtil;
 
     // 회원가입
@@ -46,21 +40,5 @@ public class AuthController {
         );
 
         return ApiResponse.onSuccess(SuccessCode.OK, loginRes);
-    }
-
-    // 전화번호 인증 sms 코드 전송
-    @PostMapping("/phone/send")
-    public ApiResponse<PhoneSendRes> send(@RequestBody @Valid PhoneSendReq req){
-        PhoneSendRes result = phoneVerificationService.sendCode(req);
-
-        return ApiResponse.onSuccess(SuccessCode.PHONE_CODE_SENT, result);
-    }
-
-    // 전화번호 인증 sms 코드 확인
-    @PostMapping("/phone/verify")
-    public ApiResponse<PhoneVerifyRes> verify(@RequestBody @Valid PhoneVerifyReq req){
-        PhoneVerifyRes result = phoneVerificationService.verifyCode(req);
-
-        return ApiResponse.onSuccess(SuccessCode.PHONE_VERIFIED, result);
     }
 }
