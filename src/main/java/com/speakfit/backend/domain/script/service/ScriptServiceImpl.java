@@ -9,6 +9,7 @@ import com.speakfit.backend.domain.script.dto.res.AiUpdateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
+import com.speakfit.backend.domain.script.dto.res.PptConvertRes;
 import com.speakfit.backend.domain.script.dto.res.UploadPptRes;
 import com.speakfit.backend.domain.script.entity.Script;
 import com.speakfit.backend.domain.script.enums.ScriptType;
@@ -263,23 +264,60 @@ public class ScriptServiceImpl implements ScriptService {
     // PPT 파일 업로드 및 슬라이드 변환 기능 구현
     @Override
     public UploadPptRes.Response uploadPpt(Long scriptId, MultipartFile file, Long userId) {
-        Script script = scriptRepository.findById(scriptId)
-                .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
+        if (!scriptRepository.existsById(scriptId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND);
+        }
 
-        if (!script.getUser().getId().equals(userId)) {
+        if (!scriptRepository.existsByIdAndUserId(scriptId, userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
 
         String sourcePptUrl = savePptFile(scriptId, file);
+        PptConvertRes.Response convertResponse = requestPptConvert(sourcePptUrl, getPptOutputDir(scriptId));
+        List<UploadPptRes.PptSlideRes> slides = convertResponse.getSlides().stream()
+                .map(slide -> UploadPptRes.PptSlideRes.builder()
+                        .page(slide.getPage())
+                        .imageUrl(slide.getImageUrl())
+                        .build())
+                .toList();
+
+        scriptTxService.savePptInfo(scriptId, userId, convertResponse.getSourcePptUrl(), convertResponse.getTotalSlides(), slides);
 
         return UploadPptRes.Response.builder()
                 .scriptId(scriptId)
                 .pptInfo(UploadPptRes.PptInfoRes.builder()
-                        .sourcePptUrl(sourcePptUrl)
-                        .totalSlides(0)
-                        .slides(List.of())
+                        .sourcePptUrl(convertResponse.getSourcePptUrl())
+                        .totalSlides(convertResponse.getTotalSlides())
+                        .slides(slides)
                         .build())
                 .build();
+    }
+
+    // Python PPT 변환 서버 호출 기능 구현
+    private PptConvertRes.Response requestPptConvert(String sourcePptUrl, String outputDir) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("pptPath", sourcePptUrl);
+        body.put("outputDir", outputDir);
+
+        try {
+            PptConvertRes.Response response = webClient.post()
+                    .uri("/ppt/convert")
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(PptConvertRes.Response.class)
+                    .block();
+
+            if (response == null || response.getSlides() == null || response.getSlides().isEmpty()) {
+                throw new CustomException(ScriptErrorCode.SCRIPT_PPT_CONVERT_FAILED);
+            }
+
+            return response;
+        } catch (CustomException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("PPT 슬라이드 변환 실패 - sourcePptUrl: {}", sourcePptUrl, e);
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_CONVERT_FAILED);
+        }
     }
 
     // PPT 원본 파일 저장 기능 구현
@@ -322,4 +360,10 @@ public class ScriptServiceImpl implements ScriptService {
 
         return cleanFileName.substring(dotIndex).toLowerCase();
     }
+
+    // PPT 변환 출력 디렉터리 생성 기능 구현
+    private String getPptOutputDir(Long scriptId) {
+        return Paths.get("uploads/ppt/" + scriptId + "/converted").toAbsolutePath().normalize().toString();
+    }
+
 }

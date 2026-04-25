@@ -61,4 +61,12 @@ public class Script extends BaseEntity {
     public void updateMarkedContent(String markedContent) {
         this.markedContent = markedContent;
     }
+
+    // PPT 정보 업데이트 메서드
+    public void updatePptInfo(String pptUrl, Integer totalSlides) {
+        this.scriptType = ScriptType.PPT;
+        this.pptUrl = pptUrl;
+        this.totalSlides = totalSlides;
+        this.pptSlides.clear();
+    }
 }

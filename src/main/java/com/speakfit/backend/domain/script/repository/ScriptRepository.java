@@ -8,4 +8,5 @@ import java.util.List;
 public interface ScriptRepository extends JpaRepository<Script,Long> {
     List<Script> findAllByUserId(Long userId);
 
+    boolean existsByIdAndUserId(Long id, Long userId);
 }
