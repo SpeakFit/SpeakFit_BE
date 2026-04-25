@@ -5,6 +5,7 @@ import com.speakfit.backend.global.apiPayload.response.code.BaseCode;
 import com.speakfit.backend.global.apiPayload.response.code.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -26,6 +27,13 @@ public class ExceptionAdvice {
         return ResponseEntity
                 .status(ErrorCode.VALIDATION_ERROR.getHttpStatus())
                 .body(ApiResponse.onFailure(ErrorCode.VALIDATION_ERROR, null));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiResponse<Object>> handleMaxUploadSizeExceeded(MaxUploadSizeExceededException e) {
+        return ResponseEntity
+                .status(ErrorCode.PAYLOAD_TOO_LARGE.getHttpStatus())
+                .body(ApiResponse.onFailure(ErrorCode.PAYLOAD_TOO_LARGE, null));
     }
 
     @ExceptionHandler(Exception.class)

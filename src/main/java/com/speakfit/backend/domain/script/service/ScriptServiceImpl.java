@@ -9,7 +9,9 @@ import com.speakfit.backend.domain.script.dto.res.AiUpdateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
+import com.speakfit.backend.domain.script.dto.res.UploadPptRes;
 import com.speakfit.backend.domain.script.entity.Script;
+import com.speakfit.backend.domain.script.enums.PptStatus;
 import com.speakfit.backend.domain.script.enums.ScriptType;
 import com.speakfit.backend.domain.script.exception.ScriptErrorCode;
 import com.speakfit.backend.domain.script.repository.ScriptRepository;
@@ -20,12 +22,20 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -37,6 +47,7 @@ public class ScriptServiceImpl implements ScriptService {
     private final ScriptTxService scriptTxService;
     private final UserRepository userRepository;
     private final WebClient webClient;
+    private final PptConvertAsyncService pptConvertAsyncService;
 
     // 발표 대본 추가 기능 구현
     @Override
@@ -129,15 +140,16 @@ public class ScriptServiceImpl implements ScriptService {
     @Override
     @Transactional(readOnly = true)
     public GetScriptDetailRes.Response getScript(Long scriptId, Long userId) {
-        Script script = scriptRepository.findById(scriptId)
+        Script script = scriptRepository.findByIdWithUser(scriptId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
 
         if (!script.getUser().getId().equals(userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
 
+        PptStatus pptStatus = resolvePptStatus(script);
         GetScriptDetailRes.PptInfoRes pptInfo = null;
-        if (script.getScriptType() == ScriptType.PPT) {
+        if (script.getScriptType() == ScriptType.PPT && pptStatus == PptStatus.COMPLETED) {
             List<GetScriptDetailRes.PptSlideRes> slideResList = script.getPptSlides().stream()
                     .map(slide -> GetScriptDetailRes.PptSlideRes.builder()
                             .page(slide.getSlideIndex())
@@ -147,6 +159,7 @@ public class ScriptServiceImpl implements ScriptService {
 
             pptInfo = GetScriptDetailRes.PptInfoRes.builder()
                     .pptUrl(script.getPptUrl())
+                    .totalSlides(script.getTotalSlides())
                     .slides(slideResList)
                     .build();
         }
@@ -157,6 +170,8 @@ public class ScriptServiceImpl implements ScriptService {
                 .content(script.getContent())
                 .markedContent(script.getMarkedContent())
                 .scriptType(script.getScriptType())
+                .pptStatus(pptStatus)
+                .pptErrorMessage(script.getPptErrorMessage())
                 .createdAt(script.getCreatedAt())
                 .pptInfo(pptInfo)
                 .build();
@@ -166,7 +181,7 @@ public class ScriptServiceImpl implements ScriptService {
     @Override
     @Transactional
     public DeleteScriptRes.Response deleteScript(Long scriptId, Long userId) {
-        Script script = scriptRepository.findById(scriptId)
+        Script script = scriptRepository.findByIdWithUser(scriptId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
 
         if (!script.getUser().getId().equals(userId)) {
@@ -174,6 +189,7 @@ public class ScriptServiceImpl implements ScriptService {
         }
 
         scriptRepository.delete(script);
+        deleteDirectoryQuietly(Paths.get("uploads/ppt/" + scriptId).toAbsolutePath().normalize());
         return DeleteScriptRes.Response.builder()
                 .id(scriptId)
                 .build();
@@ -253,4 +269,133 @@ public class ScriptServiceImpl implements ScriptService {
             throw new CustomException(ScriptErrorCode.SCRIPT_AI_UPDATE_FAILED);
         }
     }
+
+    // PPT 파일 업로드 및 슬라이드 변환 기능 구현
+    @Override
+    public UploadPptRes.Response uploadPpt(Long scriptId, MultipartFile file, Long userId) {
+        Script script = scriptRepository.findByIdWithUser(scriptId)
+                .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
+
+        if (!script.getUser().getId().equals(userId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
+        }
+
+        if (resolvePptStatus(script) == PptStatus.PROCESSING) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_ALREADY_PROCESSING);
+        }
+
+        String previousPptUrl = script.getPptUrl();
+        Path uploadDirPath = getPptAttemptDirPath(scriptId);
+        boolean processingMarked = false;
+
+        try {
+            String sourcePptUrl = savePptFile(scriptId, file, uploadDirPath);
+            scriptTxService.markPptProcessing(scriptId, userId);
+            processingMarked = true;
+            try {
+                pptConvertAsyncService.convertPptAsync(scriptId, userId, sourcePptUrl, uploadDirPath, previousPptUrl);
+            } catch (TaskRejectedException e) {
+                deleteDirectoryQuietly(uploadDirPath);
+                scriptTxService.markPptFailed(scriptId, userId, "PPT conversion queue is full.");
+                throw new CustomException(ScriptErrorCode.SCRIPT_PPT_CONVERT_FAILED);
+            }
+
+            return UploadPptRes.Response.builder()
+                    .scriptId(scriptId)
+                    .pptStatus(PptStatus.PROCESSING)
+                    .message("PPT 변환을 시작했습니다.")
+                    .build();
+        } catch (CustomException e) {
+            deleteDirectoryQuietly(uploadDirPath);
+            throw e;
+        } catch (Exception e) {
+            deleteDirectoryQuietly(uploadDirPath);
+            if (processingMarked) {
+                scriptTxService.markPptFailed(scriptId, userId, "PPT conversion task could not be started.");
+            }
+            log.error("PPT 업로드 처리 실패 - scriptId: {}", scriptId, e);
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_CONVERT_FAILED);
+        }
+    }
+
+    // PPT 파일 저장 기능 구현
+    private String savePptFile(Long scriptId, MultipartFile file, Path uploadDirPath) {
+        if (file == null || file.isEmpty()) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_EMPTY_FILE);
+        }
+
+        String extension = getPptFileExtension(file.getOriginalFilename());
+        if (!extension.equals(".ppt") && !extension.equals(".pptx")) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_INVALID_EXTENSION);
+        }
+
+        try {
+            if (!Files.exists(uploadDirPath)) {
+                Files.createDirectories(uploadDirPath);
+            }
+
+            Path filePath = uploadDirPath.resolve("source" + extension).normalize();
+            Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
+            return filePath.toString();
+        } catch (Exception e) {
+            log.error("PPT 파일 저장 실패 - scriptId: {}", scriptId, e);
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_UPLOAD_FAILED);
+        }
+    }
+
+    // PPT 파일 확장자 추출 기능 구현
+    private String getPptFileExtension(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return "";
+        }
+
+        String cleanFileName = Paths.get(fileName).getFileName().toString();
+        int dotIndex = cleanFileName.lastIndexOf(".");
+        if (dotIndex < 0) {
+            return "";
+        }
+
+        return cleanFileName.substring(dotIndex).toLowerCase();
+    }
+
+    // PPT 변환 출력 디렉터리 경로 생성 기능 구현
+    private Path getPptAttemptDirPath(Long scriptId) {
+        return Paths.get("uploads/ppt/" + scriptId + "/attempts/" + UUID.randomUUID()).toAbsolutePath().normalize();
+    }
+
+    // PPT 변환 상태 확인 기능 구현
+    private PptStatus resolvePptStatus(Script script) {
+        if (script.getPptStatus() != null) {
+            return script.getPptStatus();
+        }
+
+        if (script.getScriptType() == ScriptType.PPT && script.getPptUrl() != null) {
+            return PptStatus.COMPLETED;
+        }
+
+        return PptStatus.NONE;
+    }
+
+    // 디렉터리 삭제 기능 구현
+    private void deleteDirectoryQuietly(Path directoryPath) {
+        if (directoryPath == null || !Files.exists(directoryPath)) {
+            return;
+        }
+
+        try {
+            try (var paths = Files.walk(directoryPath)) {
+                paths.sorted(Comparator.reverseOrder())
+                        .forEach(path -> {
+                            try {
+                                Files.deleteIfExists(path);
+                            } catch (Exception e) {
+                                log.warn("파일 정리 실패 - path: {}", path, e);
+                            }
+                        });
+            }
+        } catch (Exception e) {
+            log.warn("PPT 업로드 임시 디렉터리 정리 실패 - path: {}", directoryPath, e);
+        }
+    }
+
 }

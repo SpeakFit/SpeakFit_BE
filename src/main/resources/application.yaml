@@ -8,6 +8,11 @@ spring:
       read:
         allow-unescaped-control-chars: true
 
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
 logging:
   level:
     root: info
@@ -15,5 +20,7 @@ logging:
 app:
   cookie:
     secure: false
+  ai:
+    base-url: ${AI_BASE_URL:http://localhost:5000}
   websocket:
     base-url: ${WS_BASE_URL:ws://localhost:8080/ws/practice/}

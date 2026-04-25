@@ -1,31 +1,23 @@
 package com.speakfit.backend.domain.script.dto.res;
 
 import com.speakfit.backend.domain.script.enums.PptStatus;
-import com.speakfit.backend.domain.script.enums.ScriptType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
-public class GetScriptDetailRes {
+public class UploadPptRes {
     @Getter
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
     public static class Response {
-        private Long id;
-        private String title;
-        private String content; // String (Text)
-        private String markedContent; // String (Text)
-        private ScriptType scriptType;
+        private Long scriptId;
         private PptStatus pptStatus;
-        private String pptErrorMessage;
-        private LocalDateTime createdAt;
-
-        private PptInfoRes pptInfo; // PPT 정보 (없으면 null)
+        private String message;
+        private PptInfoRes pptInfo;
     }
 
     @Getter
@@ -33,7 +25,7 @@ public class GetScriptDetailRes {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class PptInfoRes {
-        private String pptUrl; // String (Text)
+        private String sourcePptUrl;
         private Integer totalSlides;
         private List<PptSlideRes> slides;
     }
@@ -44,6 +36,6 @@ public class GetScriptDetailRes {
     @AllArgsConstructor
     public static class PptSlideRes {
         private Integer page;
-        private String imageUrl; // String (Text)
+        private String imageUrl;
     }
 }

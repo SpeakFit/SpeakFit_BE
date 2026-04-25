@@ -9,6 +9,8 @@ import com.speakfit.backend.domain.script.dto.res.AiUpdateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
+import com.speakfit.backend.domain.script.dto.res.UploadPptRes;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -30,4 +32,7 @@ public interface ScriptService {
 
     // AI 발표 대본 최적화 메서드 정의
     AiUpdateScriptRes.Response updateScript(AiUpdateScriptReq.Request req, Long userId);
+
+    // PPT 파일 업로드 및 슬라이드 변환 메서드 정의
+    UploadPptRes.Response uploadPpt(Long scriptId, MultipartFile file, Long userId);
 }
