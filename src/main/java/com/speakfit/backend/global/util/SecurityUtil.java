@@ -23,8 +23,8 @@ public class SecurityUtil {
         return ap == null ? null : ap.getUserId();
     }
 
-    public static String getCurrentUsersId() {
+    public static String getCurrentEmail() {
         AuthPrincipal ap = getPrincipal();
-        return ap == null ? null : ap.getUsersId();
+        return ap == null ? null : ap.getEmail();
     }
 }

@@ -32,8 +32,8 @@ public class JwtProvider {
     }
 
     // 토큰 생성
-    public String createAccessToken(Long userId, String usersId) {
-        return createToken(userId, usersId, accessExpSeconds);
+    public String createAccessToken(Long userId, String email) {
+        return createToken(userId, email, accessExpSeconds);
     }
 
     public String createRefreshToken(Long userId) {
@@ -45,7 +45,7 @@ public class JwtProvider {
         return Instant.now().plusSeconds(refreshExpSeconds);
     }
 
-    private String createToken(Long userId, String usersId, long expSeconds) {
+    private String createToken(Long userId, String email, long expSeconds) {
         Instant now = Instant.now();
 
         var builder = Jwts.builder()
@@ -53,8 +53,8 @@ public class JwtProvider {
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(expSeconds)));
 
-        if (usersId != null) {
-            builder.claim("usersId", usersId);
+        if (email != null) {
+            builder.claim("email", email);
         }
 
         return builder
@@ -67,9 +67,9 @@ public class JwtProvider {
         return Long.valueOf(claims.getSubject());
     }
 
-    public String getUsersId(String token){
+    public String getEmail(String token){
         Claims claims = parseClaims(token);
-        Object v = claims.get("usersId");
+        Object v = claims.get("email");
         return v == null ? null : String.valueOf(v);
     }
 
