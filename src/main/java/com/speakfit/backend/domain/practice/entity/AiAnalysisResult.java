@@ -53,15 +53,16 @@ public class AiAnalysisResult extends BaseEntity {
 
     // 클래스 내부에 데이터 업데이트 메서드 추가
     public void updateAiData(PythonAnalysisRes data) {
-        this.aiSummary = data.getAiSummary();
-        this.wpmSummary = data.getWpmSummary();
-        this.wpmFeedback = data.getWpmFeedback();
-        this.energySummary = data.getEnergySummary();
-        this.energyFeedback = data.getEnergyFeedback();
-        this.pauseFeedback = data.getPauseFeedback();
-        this.symbolFeedback = data.getSymbolFeedback();
-        this.goalSimilarityScore = data.getGoalSimilarityScore();
-        this.goalSummary = data.getGoalSummary();
-        this.goalFeedback = data.getGoalFeedback();
+        // null이 아닐 때만 업데이트하여 기존 데이터를 보존합니다.
+        if (data.getAiSummary() != null) this.aiSummary = data.getAiSummary();
+        if (data.getWpmSummary() != null) this.wpmSummary = data.getWpmSummary();
+        if (data.getWpmFeedback() != null) this.wpmFeedback = data.getWpmFeedback();
+        if (data.getEnergySummary() != null) this.energySummary = data.getEnergySummary();
+        if (data.getEnergyFeedback() != null) this.energyFeedback = data.getEnergyFeedback();
+        if (data.getPauseFeedback() != null) this.pauseFeedback = data.getPauseFeedback();
+        if (data.getSymbolFeedback() != null) this.symbolFeedback = data.getSymbolFeedback();
+        if (data.getGoalSimilarityScore() != null) this.goalSimilarityScore = data.getGoalSimilarityScore();
+        if (data.getGoalSummary() != null) this.goalSummary = data.getGoalSummary();
+        if (data.getGoalFeedback() != null) this.goalFeedback = data.getGoalFeedback();
     }
 }
