@@ -1,94 +1,13 @@
 package com.speakfit.backend.domain.practice.service;
 
-import com.speakfit.backend.domain.practice.dto.res.PythonAnalysisRes;
 import com.speakfit.backend.domain.practice.entity.PracticeRecord;
-import com.speakfit.backend.domain.practice.exception.PracticeErrorCode;
-import com.speakfit.backend.domain.practice.repository.AiAnalysisResultRepository;
-import com.speakfit.backend.domain.practice.repository.AnalysisResultRepository;
-import com.speakfit.backend.domain.practice.repository.PracticeRepository;
 import com.speakfit.backend.domain.script.entity.Script;
 import com.speakfit.backend.domain.style.entity.SpeechStyle;
-import com.speakfit.backend.global.apiPayload.exception.CustomException;
-import lombok.RequiredArgsConstructor;
-import org.springframework.scheduling.annotation.Async;
-import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
 
-import java.util.HashMap;
-import java.util.Map;
+public interface AiAnalysisService {
+    // 비동기 분석 및 결과 저장 로직 정의
+    void processAnalysisAsync(Long practiceId, String audioUrl);
 
-@Service
-@RequiredArgsConstructor
-public class AiAnalysisService {
-
-    private final PracticeRepository practiceRepository;
-    private final AnalysisResultRepository analysisResultRepository;
-    private final AiAnalysisTxService aiAnalysisTxService;
-    private final AiAnalysisResultRepository aiAnalysisResultRepository;
-    private final WebClient webClient;
-
-    // 비동기 분석 및 결과 저장 로직 구현
-    @Async
-    public void processAnalysisAsync(Long practiceId, String audioUrl) {
-        try {
-            PracticeRecord record = practiceRepository.findByIdWithDetails(practiceId)
-                    .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
-
-            PythonAnalysisRes pythonData = requestPythonAnalysis(record, audioUrl);
-
-            if (pythonData != null) {
-                // 프록시를 통해 호출하므로 REQUIRES_NEW가 정상 작동합니다.
-                aiAnalysisTxService.saveResults(practiceId, pythonData);
-            }
-        } catch (Exception e) {
-            aiAnalysisTxService.handleAnalysisFailure(practiceId);
-        }
-    }
-
-
-    // 파이썬 분석 서버와의 실제 통신 로직 완성
-    private PythonAnalysisRes requestPythonAnalysis(PracticeRecord record, String audioUrl) {
-        // 파이썬 서버가 분석에 필요한 모든 데이터를 Map에 담음
-        Map<String, Object> body = new HashMap<>();
-        body.put("practiceId", record.getId());
-        body.put("audioUrl", audioUrl);
-        body.put("markedContent", record.getScript().getMarkedContent()); // 낭독 기호 대본
-        body.put("audienceType", record.getAudienceType().toString()); // Enum -> String
-        body.put("audienceUnderstanding", record.getAudienceUnderstanding().toString());
-        body.put("speechInformation", record.getSpeechInformation().toString());
-        body.put("styleType", record.getSpeechStyle().getStyleType()); // 스타일 정보
-
-        // 파이썬 서버의 /analyze 엔드포인트 호출
-        return webClient.post()
-                .uri("/analyze")
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(PythonAnalysisRes.class)
-                .block(); // 비동기 스레드 내에서 호출되므로 block() 사용 가능
-    }
-
-    // 파이썬 서버에 대본 기호 생성(Marking) 요청
-    public String generateMarkedContent(Script script, SpeechStyle style, PracticeRecord record) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("content", script.getContent());
-        body.put("style", style.getStyleType());
-        body.put("audienceType", record.getAudienceType().toString());
-        body.put("audienceUnderstanding", record.getAudienceUnderstanding().toString());
-        body.put("speechInformation", record.getSpeechInformation().toString());
-
-        try {
-            // /scripts/mark 엔드포인트 호출
-            Map<String, Object> response = webClient.post()
-                    .uri("/scripts/mark")
-                    .bodyValue(body)
-                    .retrieve()
-                    .bodyToMono(Map.class)
-                    .block();
-
-            return response != null ? (String) response.get("markedContent") : null;
-        } catch (Exception e) {
-            System.err.println("AI 기호 대본 생성 실패: " + e.getMessage());
-            return null;
-        }
-    }
+    // 파이썬 서버에 대본 기호 생성(Marking) 요청 정의
+    String generateMarkedContent(Script script, SpeechStyle style, PracticeRecord record);
 }

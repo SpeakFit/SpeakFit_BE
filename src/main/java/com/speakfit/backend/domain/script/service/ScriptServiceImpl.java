@@ -26,10 +26,10 @@ public class ScriptServiceImpl implements ScriptService {
     private final ScriptRepository scriptRepository;
     private final UserRepository userRepository;
 
-    // 발표 대본 추가 기능 서비스 구현
+    // 발표 대본 추가 기능 서비스 구현 구현
     @Override
     @Transactional
-    public AddScriptRes addScript(AddScriptReq.Request req, Long userId) {
+    public AddScriptRes.Response addScript(AddScriptReq.Request req, Long userId) {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND));
@@ -46,7 +46,7 @@ public class ScriptServiceImpl implements ScriptService {
         Script savedScript = scriptRepository.save(script);
 
         // 3. entity -> res dto 변환 및 반환
-        return AddScriptRes.builder()
+        return AddScriptRes.Response.builder()
                 .id(savedScript.getId())
                 .title(savedScript.getTitle())
                 .content(savedScript.getContent())
@@ -54,9 +54,9 @@ public class ScriptServiceImpl implements ScriptService {
                 .build();
     }
 
-    // 발표 대본 목록 조회 기능 서비스 구현
+    // 발표 대본 목록 조회 기능 서비스 구현 구현
     @Override
-    public List<GetScriptListRes> getScripts(Long userId) {
+    public List<GetScriptListRes.Response> getScripts(Long userId) {
 
 
         // 1. Repository에서 유저의 대본 리스트 가져오기
@@ -64,7 +64,7 @@ public class ScriptServiceImpl implements ScriptService {
 
         // 2. Entity리스트 -> dto리스트 변환 및 반환
         return scripts.stream()
-                .map(script -> GetScriptListRes.builder()
+                .map(script -> GetScriptListRes.Response.builder()
                         .id(script.getId())
                         .title(script.getTitle())
                         .content(script.getContent())
@@ -74,9 +74,9 @@ public class ScriptServiceImpl implements ScriptService {
                 .toList();
         }
 
-    // 발표 대본 상세 조회 기능 서비스 구현
+    // 발표 대본 상세 조회 기능 구현
     @Override
-    public GetScriptDetailRes getScript(Long scriptId, Long userId) {
+    public GetScriptDetailRes.Response getScript(Long scriptId, Long userId) {
         // 1. DB에서 대본 찾기
         Script script = scriptRepository.findById(scriptId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
@@ -103,7 +103,7 @@ public class ScriptServiceImpl implements ScriptService {
         }
 
         // 4. Entity -> DTO 변환 및 반환
-        return GetScriptDetailRes.builder()
+        return GetScriptDetailRes.Response.builder()
                 .id(script.getId())
                 .title(script.getTitle())
                 .content(script.getContent())
@@ -114,10 +114,10 @@ public class ScriptServiceImpl implements ScriptService {
                 .build();
     }
 
-    // 발표 대본 삭제 기능 서비스 구현
+    // 발표 대본 삭제 기능 서비스 구현 구현
     @Override
     @Transactional
-    public DeleteScriptRes deleteScript(Long scriptId, Long userId) {
+    public DeleteScriptRes.Response deleteScript(Long scriptId, Long userId) {
         // 1. DB에서 대본 찾기
         Script script = scriptRepository.findById(scriptId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
@@ -131,7 +131,7 @@ public class ScriptServiceImpl implements ScriptService {
         scriptRepository.delete(script);
 
         // 4. 삭제된 ID 반환
-        return DeleteScriptRes.builder()
+        return DeleteScriptRes.Response.builder()
                 .id(scriptId)
                 .build();
     }

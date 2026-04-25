@@ -49,7 +49,7 @@ public class PracticeServiceImpl implements PracticeService {
     @Value("${app.websocket.base-url}")
     private String webSocketBaseUrl;
 
-    // 발표 연습 정보값 입력 및 스타일 추천 서비스 구현
+    // 발표 연습 정보값 입력 및 스타일 추천 서비스 구현 구현
     @Override
     @Transactional
     public InputPracticeInfoRes.Response inputPracticeInfo(Long scriptId, InputPracticeInfoReq.Request req, Long userId) {
@@ -90,10 +90,10 @@ public class PracticeServiceImpl implements PracticeService {
                 .build();
     }
 
-    // 추천 또는 선택한 발표 스타일 확정 및 낭독 기호 생성 서비스 구현
+    // 추천 또는 선택한 발표 스타일 확정 및 낭독 기호 생성 서비스 구현 구현
     @Override
     @Transactional
-    public SelectStyleRes selectStyle(Long practiceId, SelectStyleReq.Request req, Long userId) {
+    public SelectStyleRes.Response selectStyle(Long practiceId, SelectStyleReq.Request req, Long userId) {
         // 1. 연습 기록 조회 및 권한 체크
         PracticeRecord record = practiceRepository.findById(practiceId)
                 .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
@@ -118,8 +118,9 @@ public class PracticeServiceImpl implements PracticeService {
         // 4. 낭독 가이드(contentList) 생성 및 반환
         List<SelectStyleRes.ContentRes> contentList = parseMarkedContentToSelectStyleRes(record.getScript().getMarkedContent());
         
-        return SelectStyleRes.builder()
+        return SelectStyleRes.Response.builder()
                 .practiceId(record.getId())
+                .styleType(style.getStyleType())
                 .contentList(contentList)
                 .build();
     }
@@ -145,10 +146,10 @@ public class PracticeServiceImpl implements PracticeService {
         return list;
     }
 
-    // 발표 연습 시작 (실제 녹음/분석 활성화) 서비스 구현
+    // 발표 연습 시작 (실제 녹음/분석 활성화) 서비스 구현 구현
     @Override
     @Transactional
-    public StartPracticeRes startPractice(Long practiceId, Long userId) {
+    public StartPracticeRes.Response startPractice(Long practiceId, Long userId) {
         // 1. 연습 기록 조회 및 권한 체크
         PracticeRecord record = practiceRepository.findById(practiceId)
                 .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
@@ -165,7 +166,7 @@ public class PracticeServiceImpl implements PracticeService {
         String webSocketUrl = webSocketBaseUrl + record.getId();
 
         // 4. 시작 정보 반환
-        return StartPracticeRes.builder()
+        return StartPracticeRes.Response.builder()
                 .practiceId(record.getId())
                 .title(record.getScript().getTitle())
                 .webSocketUrl(webSocketUrl)
@@ -175,10 +176,10 @@ public class PracticeServiceImpl implements PracticeService {
                 .build();
     }
 
-    // 발표 연습 종료 및 분석 트리거 서비스 구현
+    // 발표 연습 종료 및 분석 트리거 서비스 구현 구현
     @Override
     @Transactional
-    public StopPracticeRes stopPractice(Long practiceId, StopPracticeReq.Request req, Long userId) {
+    public StopPracticeRes.Response stopPractice(Long practiceId, StopPracticeReq.Request req, Long userId) {
         // 1. 연습 기록 조회 및 권한 체크
         PracticeRecord practiceRecord = practiceRepository.findById(practiceId)
                 .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
@@ -197,16 +198,16 @@ public class PracticeServiceImpl implements PracticeService {
         // 4. 비동기 AI 분석 프로세스 시작
         aiAnalysisService.processAnalysisAsync(practiceRecord.getId(), audioUrl);
 
-        return StopPracticeRes.builder()
+        return StopPracticeRes.Response.builder()
                 .practiceId(practiceRecord.getId())
                 .status(practiceRecord.getStatus())
                 .audioUrl(practiceRecord.getAudioUrl())
                 .build();
     }
 
-    // 발표 연습 결과 리포트 조회 서비스 구현
+    // 발표 연습 결과 리포트 조회 서비스 구현 구현
     @Override
-    public GetPracticeReportRes getPracticeReport(Long practiceId, Long userId) {
+    public GetPracticeReportRes.Response getPracticeReport(Long practiceId, Long userId) {
         // 1. 연습 기록 조회 및 권한 확인
         PracticeRecord record = practiceRepository.findById(practiceId)
                 .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
@@ -217,7 +218,7 @@ public class PracticeServiceImpl implements PracticeService {
 
         // 2. 분석 미완료 시 폴링 메시지 반환
         if (record.getStatus() != Status.ANALYZED) {
-            return GetPracticeReportRes.builder()
+            return GetPracticeReportRes.Response.builder()
                     .practiceId(record.getId())
                     .status(record.getStatus())
                     .message(record.getStatus() == Status.ANALYZING ? "분석 중입니다." : "분석 실패")
@@ -234,7 +235,7 @@ public class PracticeServiceImpl implements PracticeService {
         List<GetPracticeReportRes.SentenceRes> sentences = mergeDetailsToSentences(record.getScript().getContent(), details);
 
         // 5. 최종 리포트 DTO 조립 및 반환
-        return GetPracticeReportRes.builder()
+        return GetPracticeReportRes.Response.builder()
                 .practiceId(record.getId())
                 .status(record.getStatus())
                 .audioUrl(record.getAudioUrl())
@@ -311,7 +312,7 @@ public class PracticeServiceImpl implements PracticeService {
                     .text(sentenceText)
                     .startTime(firstWord.getStartTime())
                     .endTime(lastWord.getEndTime())
-                    .status(firstWord.getStatus()) 
+                    .status(firstWord.getStatus().name()) 
                     .build());
             currentWordIdx += wordsInSentence.length;
         }
@@ -334,6 +335,7 @@ public class PracticeServiceImpl implements PracticeService {
         }
     }
 
+    // 파일 확장자 추출 구현
     private String getFileExtension(String fileName) {
         if (fileName == null || fileName.isEmpty()) return "";
         String cleanFileName = Paths.get(fileName).getFileName().toString();

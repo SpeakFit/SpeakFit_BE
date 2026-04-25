@@ -25,28 +25,28 @@ public class ScriptController {
 
     private final ScriptService scriptService;
 
-    // 발표 대본 추가
+    // 발표 대본 추가 구현
     @PostMapping
-    public ApiResponse<AddScriptRes> addScript(@RequestBody @Valid AddScriptReq.Request request, @AuthenticationPrincipal AuthPrincipal authPrincipal) {
+    public ApiResponse<AddScriptRes.Response> addScript(@RequestBody @Valid AddScriptReq.Request request, @AuthenticationPrincipal AuthPrincipal authPrincipal) {
         // 성공 코드 : CREATED(201)
-        return ApiResponse.onSuccess(SuccessCode.CREATED, scriptService.addScript(request,authPrincipal.getUserId()));
+        return ApiResponse.onSuccess(SuccessCode.CREATED, scriptService.addScript(request, authPrincipal.getUserId()));
     }
 
-    // 발표 대본 목록 조회
+    // 발표 대본 목록 조회 구현
     @GetMapping
-    public ApiResponse<List<GetScriptListRes>> getScripts(@AuthenticationPrincipal AuthPrincipal authPrincipal){
-        return ApiResponse.onSuccess(SuccessCode.OK,scriptService.getScripts(authPrincipal.getUserId()));
+    public ApiResponse<List<GetScriptListRes.Response>> getScripts(@AuthenticationPrincipal AuthPrincipal authPrincipal) {
+        return ApiResponse.onSuccess(SuccessCode.OK, scriptService.getScripts(authPrincipal.getUserId()));
     }
 
-    // 발표 대본 상세 조회
+    // 발표 대본 상세 조회 구현
     @GetMapping("/{scriptId}")
-    public ApiResponse<GetScriptDetailRes> getScript(@PathVariable @Positive Long scriptId,@AuthenticationPrincipal AuthPrincipal authPrincipal) {
-        return ApiResponse.onSuccess(SuccessCode.OK,scriptService.getScript(scriptId,authPrincipal.getUserId()));
+    public ApiResponse<GetScriptDetailRes.Response> getScript(@PathVariable @Positive Long scriptId, @AuthenticationPrincipal AuthPrincipal authPrincipal) {
+        return ApiResponse.onSuccess(SuccessCode.OK, scriptService.getScript(scriptId, authPrincipal.getUserId()));
     }
 
-    // 발표 대본 삭제
+    // 발표 대본 삭제 구현
     @DeleteMapping("/{scriptId}")
-    public ApiResponse<DeleteScriptRes> deleteScript(@PathVariable @Positive Long scriptId,@AuthenticationPrincipal AuthPrincipal authPrincipal) {
-        return ApiResponse.onSuccess(SuccessCode.OK,scriptService.deleteScript(scriptId,authPrincipal.getUserId()));
+    public ApiResponse<DeleteScriptRes.Response> deleteScript(@PathVariable @Positive Long scriptId, @AuthenticationPrincipal AuthPrincipal authPrincipal) {
+        return ApiResponse.onSuccess(SuccessCode.OK, scriptService.deleteScript(scriptId, authPrincipal.getUserId()));
     }
 }
