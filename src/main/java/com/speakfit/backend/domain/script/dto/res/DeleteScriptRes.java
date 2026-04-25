@@ -3,10 +3,14 @@ package com.speakfit.backend.domain.script.dto.res;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 
-@Getter
-@Builder
-@AllArgsConstructor
 public class DeleteScriptRes {
-    private Long id;
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Response {
+        private Long id;
+    }
 }

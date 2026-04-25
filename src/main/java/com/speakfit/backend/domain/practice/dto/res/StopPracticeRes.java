@@ -6,15 +6,14 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-@Getter
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
 public class StopPracticeRes {
-
-    private Long practiceId;
-
-    private Status status;
-
-    private String audioUrl;
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Response {
+        private Long practiceId;
+        private Status status;
+        private String audioUrl;
+    }
 }

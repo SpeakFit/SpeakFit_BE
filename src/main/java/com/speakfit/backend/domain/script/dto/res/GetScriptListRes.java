@@ -4,16 +4,20 @@ import com.speakfit.backend.domain.script.enums.ScriptType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
-@Getter
-@Builder
-@AllArgsConstructor
 public class GetScriptListRes {
-    private Long id;
-    private String title;
-    private String content; // String (Text)
-    private ScriptType scriptType; // 추가: PPT인지 TEXT인지 구분
-    private LocalDateTime createdAt;
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Response {
+        private Long id;
+        private String title;
+        private String content;
+        private ScriptType scriptType;
+        private LocalDateTime createdAt;
+    }
 }
