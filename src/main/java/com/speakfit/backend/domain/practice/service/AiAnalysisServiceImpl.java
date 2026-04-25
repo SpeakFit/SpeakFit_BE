@@ -10,6 +10,7 @@ import com.speakfit.backend.domain.script.entity.Script;
 import com.speakfit.backend.domain.style.entity.SpeechStyle;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +19,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import java.util.HashMap;
 import java.util.Map;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -29,10 +31,9 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
     private final AiAnalysisResultRepository aiAnalysisResultRepository;
     private final WebClient webClient;
 
-    // 비동기 분석 및 결과 저장 로직 구현 구현
+    // 비동기 분석 및 결과 저장 로직 구현 
     @Override
     @Async
-    @Transactional
     public void processAnalysisAsync(Long practiceId, String audioUrl) {
         try {
             PracticeRecord record = practiceRepository.findByIdWithDetails(practiceId)
@@ -45,6 +46,7 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
                 aiAnalysisTxService.saveResults(practiceId, pythonData);
             }
         } catch (Exception e) {
+            log.error("연습 분석 중 오류 발생 - 연습 ID: {}, 원인: ", practiceId, e);
             aiAnalysisTxService.handleAnalysisFailure(practiceId);
         }
     }

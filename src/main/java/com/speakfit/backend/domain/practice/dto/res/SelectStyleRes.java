@@ -1,5 +1,6 @@
 package com.speakfit.backend.domain.practice.dto.res;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.speakfit.backend.domain.style.enums.StyleType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -26,7 +27,11 @@ public class SelectStyleRes {
     public static class ContentRes {
         private Integer index;
         private String word;
+        
+        @JsonProperty("hasBreak")
         private boolean hasBreak;
+        
+        @JsonProperty("isEmphasis")
         private boolean isEmphasis;
     }
 }

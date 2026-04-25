@@ -1,5 +1,8 @@
 package com.speakfit.backend.domain.practice.dto.res;
 
+import com.speakfit.backend.domain.practice.enums.AudienceType;
+import com.speakfit.backend.domain.practice.enums.AudienceUnderstanding;
+import com.speakfit.backend.domain.practice.enums.SpeechInformation;
 import com.speakfit.backend.domain.practice.enums.Status;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -21,6 +24,10 @@ public class GetPracticeReportRes {
         private Double time;
         private LocalDateTime createdAt;
         private String message; // 분석 중일 때 메시지
+
+        private AudienceType audienceType;
+        private AudienceUnderstanding audienceUnderstanding;
+        private SpeechInformation speechInformation;
 
         private AnalysisDetail analysis;
         private AiAnalysisDetail aiAnalysis;
