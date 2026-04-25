@@ -33,6 +33,12 @@ public enum ErrorCode implements BaseCode {
             HttpStatus.NOT_FOUND
     ),
 
+    PAYLOAD_TOO_LARGE(
+            "COMMON413",
+            "Upload file size exceeds the allowed limit.",
+            HttpStatus.PAYLOAD_TOO_LARGE
+    ),
+
     INTERNAL_SERVER_ERROR(
             "COMMON500",
             "서버 오류가 발생했습니다.",

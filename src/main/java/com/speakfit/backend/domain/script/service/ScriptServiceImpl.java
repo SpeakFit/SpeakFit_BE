@@ -9,9 +9,9 @@ import com.speakfit.backend.domain.script.dto.res.AiUpdateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
-import com.speakfit.backend.domain.script.dto.res.PptConvertRes;
 import com.speakfit.backend.domain.script.dto.res.UploadPptRes;
 import com.speakfit.backend.domain.script.entity.Script;
+import com.speakfit.backend.domain.script.enums.PptStatus;
 import com.speakfit.backend.domain.script.enums.ScriptType;
 import com.speakfit.backend.domain.script.exception.ScriptErrorCode;
 import com.speakfit.backend.domain.script.repository.ScriptRepository;
@@ -30,9 +30,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -44,6 +46,7 @@ public class ScriptServiceImpl implements ScriptService {
     private final ScriptTxService scriptTxService;
     private final UserRepository userRepository;
     private final WebClient webClient;
+    private final PptConvertAsyncService pptConvertAsyncService;
 
     // 발표 대본 추가 기능 구현
     @Override
@@ -136,15 +139,16 @@ public class ScriptServiceImpl implements ScriptService {
     @Override
     @Transactional(readOnly = true)
     public GetScriptDetailRes.Response getScript(Long scriptId, Long userId) {
-        Script script = scriptRepository.findById(scriptId)
+        Script script = scriptRepository.findByIdWithUser(scriptId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
 
         if (!script.getUser().getId().equals(userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
 
+        PptStatus pptStatus = resolvePptStatus(script);
         GetScriptDetailRes.PptInfoRes pptInfo = null;
-        if (script.getScriptType() == ScriptType.PPT) {
+        if (script.getScriptType() == ScriptType.PPT && pptStatus == PptStatus.COMPLETED) {
             List<GetScriptDetailRes.PptSlideRes> slideResList = script.getPptSlides().stream()
                     .map(slide -> GetScriptDetailRes.PptSlideRes.builder()
                             .page(slide.getSlideIndex())
@@ -154,6 +158,7 @@ public class ScriptServiceImpl implements ScriptService {
 
             pptInfo = GetScriptDetailRes.PptInfoRes.builder()
                     .pptUrl(script.getPptUrl())
+                    .totalSlides(script.getTotalSlides())
                     .slides(slideResList)
                     .build();
         }
@@ -164,6 +169,8 @@ public class ScriptServiceImpl implements ScriptService {
                 .content(script.getContent())
                 .markedContent(script.getMarkedContent())
                 .scriptType(script.getScriptType())
+                .pptStatus(pptStatus)
+                .pptErrorMessage(script.getPptErrorMessage())
                 .createdAt(script.getCreatedAt())
                 .pptInfo(pptInfo)
                 .build();
@@ -173,7 +180,7 @@ public class ScriptServiceImpl implements ScriptService {
     @Override
     @Transactional
     public DeleteScriptRes.Response deleteScript(Long scriptId, Long userId) {
-        Script script = scriptRepository.findById(scriptId)
+        Script script = scriptRepository.findByIdWithUser(scriptId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
 
         if (!script.getUser().getId().equals(userId)) {
@@ -181,6 +188,7 @@ public class ScriptServiceImpl implements ScriptService {
         }
 
         scriptRepository.delete(script);
+        deleteDirectoryQuietly(Paths.get("uploads/ppt/" + scriptId).toAbsolutePath().normalize());
         return DeleteScriptRes.Response.builder()
                 .id(scriptId)
                 .build();
@@ -264,47 +272,57 @@ public class ScriptServiceImpl implements ScriptService {
     // PPT 파일 업로드 및 슬라이드 변환 기능 구현
     @Override
     public UploadPptRes.Response uploadPpt(Long scriptId, MultipartFile file, Long userId) {
-        if (!scriptRepository.existsById(scriptId)) {
-            throw new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND);
-        }
+        Script script = scriptRepository.findByIdWithUser(scriptId)
+                .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
 
-        if (!scriptRepository.existsByIdAndUserId(scriptId, userId)) {
+        if (!script.getUser().getId().equals(userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
 
-        String sourcePptUrl = savePptFile(scriptId, file);
-        PptConvertRes.Response convertResponse = requestPptConvert(sourcePptUrl, getPptOutputDir(scriptId));
-        List<UploadPptRes.PptSlideRes> slides = convertResponse.getSlides().stream()
-                .map(slide -> UploadPptRes.PptSlideRes.builder()
-                        .page(slide.getPage())
-                        .imageUrl(slide.getImageUrl())
-                        .build())
-                .toList();
+        if (script.getPptStatus() == PptStatus.PROCESSING) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_ALREADY_PROCESSING);
+        }
 
-        scriptTxService.savePptInfo(scriptId, userId, convertResponse.getSourcePptUrl(), convertResponse.getTotalSlides(), slides);
+        String previousPptUrl = script.getPptUrl();
+        Path uploadDirPath = getPptAttemptDirPath(scriptId);
+        boolean processingMarked = false;
 
-        return UploadPptRes.Response.builder()
-                .scriptId(scriptId)
-                .pptInfo(UploadPptRes.PptInfoRes.builder()
-                        .sourcePptUrl(convertResponse.getSourcePptUrl())
-                        .totalSlides(convertResponse.getTotalSlides())
-                        .slides(slides)
-                        .build())
-                .build();
+        try {
+            String sourcePptUrl = savePptFile(scriptId, file, uploadDirPath);
+            scriptTxService.markPptProcessing(scriptId, userId);
+            processingMarked = true;
+            pptConvertAsyncService.convertPptAsync(scriptId, userId, sourcePptUrl, uploadDirPath, previousPptUrl);
+
+            return UploadPptRes.Response.builder()
+                    .scriptId(scriptId)
+                    .pptStatus(PptStatus.PROCESSING)
+                    .message("PPT conversion has started.")
+                    .build();
+        } catch (CustomException e) {
+            deleteDirectoryQuietly(uploadDirPath);
+            throw e;
+        } catch (Exception e) {
+            deleteDirectoryQuietly(uploadDirPath);
+            if (processingMarked) {
+                scriptTxService.markPptFailed(scriptId, userId, "PPT conversion task could not be started.");
+            }
+            log.error("PPT 업로드 처리 실패 - scriptId: {}", scriptId, e);
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_CONVERT_FAILED);
+        }
     }
 
     // Python PPT 변환 서버 호출 기능 구현
-    private PptConvertRes.Response requestPptConvert(String sourcePptUrl, String outputDir) {
+    private com.speakfit.backend.domain.script.dto.res.PptConvertRes.Response requestPptConvert(String sourcePptUrl, String outputDir) {
         Map<String, Object> body = new HashMap<>();
         body.put("pptPath", sourcePptUrl);
         body.put("outputDir", outputDir);
 
         try {
-            PptConvertRes.Response response = webClient.post()
+            com.speakfit.backend.domain.script.dto.res.PptConvertRes.Response response = webClient.post()
                     .uri("/ppt/convert")
                     .bodyValue(body)
                     .retrieve()
-                    .bodyToMono(PptConvertRes.Response.class)
+                    .bodyToMono(com.speakfit.backend.domain.script.dto.res.PptConvertRes.Response.class)
                     .block();
 
             if (response == null || response.getSlides() == null || response.getSlides().isEmpty()) {
@@ -321,7 +339,7 @@ public class ScriptServiceImpl implements ScriptService {
     }
 
     // PPT 원본 파일 저장 기능 구현
-    private String savePptFile(Long scriptId, MultipartFile file) {
+    private String savePptFile(Long scriptId, MultipartFile file, Path uploadDirPath) {
         if (file == null || file.isEmpty()) {
             throw new CustomException(ScriptErrorCode.SCRIPT_PPT_EMPTY_FILE);
         }
@@ -332,7 +350,6 @@ public class ScriptServiceImpl implements ScriptService {
         }
 
         try {
-            Path uploadDirPath = Paths.get("uploads/ppt/" + scriptId).toAbsolutePath().normalize();
             if (!Files.exists(uploadDirPath)) {
                 Files.createDirectories(uploadDirPath);
             }
@@ -362,8 +379,68 @@ public class ScriptServiceImpl implements ScriptService {
     }
 
     // PPT 변환 출력 디렉터리 생성 기능 구현
-    private String getPptOutputDir(Long scriptId) {
-        return Paths.get("uploads/ppt/" + scriptId + "/converted").toAbsolutePath().normalize().toString();
+    private Path getPptAttemptDirPath(Long scriptId) {
+        return Paths.get("uploads/ppt/" + scriptId + "/attempts/" + UUID.randomUUID()).toAbsolutePath().normalize();
+    }
+
+    private PptStatus resolvePptStatus(Script script) {
+        if (script.getPptStatus() != null) {
+            return script.getPptStatus();
+        }
+
+        if (script.getScriptType() == ScriptType.PPT && script.getPptUrl() != null) {
+            return PptStatus.COMPLETED;
+        }
+
+        return PptStatus.NONE;
+    }
+
+    private String getPptOutputDir(Path uploadDirPath) {
+        return uploadDirPath.resolve("converted").normalize().toString();
+    }
+
+    private void deleteDirectoryQuietly(Path directoryPath) {
+        if (directoryPath == null || !Files.exists(directoryPath)) {
+            return;
+        }
+
+        try {
+            try (var paths = Files.walk(directoryPath)) {
+                paths.sorted(Comparator.reverseOrder())
+                        .forEach(path -> {
+                            try {
+                                Files.deleteIfExists(path);
+                            } catch (Exception e) {
+                                log.warn("파일 정리 실패 - path: {}", path, e);
+                            }
+                        });
+            }
+        } catch (Exception e) {
+            log.warn("PPT 업로드 임시 디렉터리 정리 실패 - path: {}", directoryPath, e);
+        }
+    }
+
+    private void deletePreviousPptAttemptQuietly(String previousPptUrl, Path currentUploadDirPath) {
+        if (previousPptUrl == null || previousPptUrl.isBlank()) {
+            return;
+        }
+
+        Path previousFilePath = Paths.get(previousPptUrl).toAbsolutePath().normalize();
+        Path previousUploadDirPath = previousFilePath.getParent();
+        if (previousUploadDirPath == null || previousUploadDirPath.getParent() == null) {
+            return;
+        }
+
+        Path attemptsDirPath = previousUploadDirPath.getParent();
+        if (!"attempts".equals(attemptsDirPath.getFileName().toString())) {
+            return;
+        }
+
+        if (previousUploadDirPath.equals(currentUploadDirPath)) {
+            return;
+        }
+
+        deleteDirectoryQuietly(previousUploadDirPath);
     }
 
 }

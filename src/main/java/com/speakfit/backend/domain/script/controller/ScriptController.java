@@ -21,6 +21,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -74,11 +75,13 @@ public class ScriptController {
 
     // PPT 파일 업로드 및 슬라이드 변환 구현
     @PatchMapping(value = "/{scriptId}/ppt", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ApiResponse<UploadPptRes.Response> uploadPpt(@PathVariable @Positive Long scriptId,
-                                                         @Parameter(content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE,
-                                                                 schema = @Schema(type = "string", format = "binary")))
-                                                         @RequestPart("file") MultipartFile file,
-                                                         @AuthenticationPrincipal AuthPrincipal authPrincipal) {
-        return ApiResponse.onSuccess(SuccessCode.OK, scriptService.uploadPpt(scriptId, file, authPrincipal.getUserId()));
+    public ResponseEntity<ApiResponse<UploadPptRes.Response>> uploadPpt(@PathVariable @Positive Long scriptId,
+                                                                         @Parameter(content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE,
+                                                                                 schema = @Schema(type = "string", format = "binary")))
+                                                                         @RequestPart("file") MultipartFile file,
+                                                                         @AuthenticationPrincipal AuthPrincipal authPrincipal) {
+        return ResponseEntity
+                .status(SuccessCode.ACCEPTED.getHttpStatus())
+                .body(ApiResponse.onSuccess(SuccessCode.ACCEPTED, scriptService.uploadPpt(scriptId, file, authPrincipal.getUserId())));
     }
 }

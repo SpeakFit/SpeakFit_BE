@@ -23,7 +23,6 @@ public class ScriptTxServiceImpl implements ScriptTxService {
     private final ScriptRepository scriptRepository;
     private final UserRepository userRepository;
 
-    // 발표 대본 저장 트랜잭션 기능 구현
     @Override
     @Transactional
     public Script saveScript(AddScriptReq.Request req, Long userId, String markedContent) {
@@ -40,21 +39,39 @@ public class ScriptTxServiceImpl implements ScriptTxService {
         return scriptRepository.save(script);
     }
 
-    // PPT 정보 저장 트랜잭션 기능 구현
     @Override
     @Transactional
-    public void savePptInfo(Long scriptId, Long userId, String sourcePptUrl, Integer totalSlides, List<UploadPptRes.PptSlideRes> slides) {
-        Script script = scriptRepository.findById(scriptId)
+    public void markPptProcessing(Long scriptId, Long userId) {
+        Script script = findOwnedScript(scriptId, userId);
+        script.markPptProcessing();
+    }
+
+    @Override
+    @Transactional
+    public void savePptSuccess(Long scriptId, Long userId, String sourcePptUrl, Integer totalSlides, List<UploadPptRes.PptSlideRes> slides) {
+        Script script = findOwnedScript(scriptId, userId);
+        script.updatePptInfo(sourcePptUrl, totalSlides);
+        slides.forEach(slide -> script.addPptSlide(PptSlide.builder()
+                .slideIndex(slide.getPage())
+                .imageUrl(slide.getImageUrl())
+                .build()));
+    }
+
+    @Override
+    @Transactional
+    public void markPptFailed(Long scriptId, Long userId, String errorMessage) {
+        Script script = findOwnedScript(scriptId, userId);
+        script.markPptFailed(errorMessage);
+    }
+
+    private Script findOwnedScript(Long scriptId, Long userId) {
+        Script script = scriptRepository.findByIdWithUser(scriptId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
 
         if (!script.getUser().getId().equals(userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
 
-        script.updatePptInfo(sourcePptUrl, totalSlides);
-        slides.forEach(slide -> script.addPptSlide(PptSlide.builder()
-                .slideIndex(slide.getPage())
-                .imageUrl(slide.getImageUrl())
-                .build()));
+        return script;
     }
 }

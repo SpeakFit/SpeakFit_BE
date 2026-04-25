@@ -1,5 +1,6 @@
 package com.speakfit.backend.domain.script.dto.res;
 
+import com.speakfit.backend.domain.script.enums.PptStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -14,6 +15,8 @@ public class UploadPptRes {
     @AllArgsConstructor
     public static class Response {
         private Long scriptId;
+        private PptStatus pptStatus;
+        private String message;
         private PptInfoRes pptInfo;
     }
 

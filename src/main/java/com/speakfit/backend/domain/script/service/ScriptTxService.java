@@ -8,9 +8,11 @@ import java.util.List;
 
 public interface ScriptTxService {
 
-    // 발표 대본 저장 트랜잭션 기능 정의
     Script saveScript(AddScriptReq.Request req, Long userId, String markedContent);
 
-    // PPT 정보 저장 트랜잭션 기능 정의
-    void savePptInfo(Long scriptId, Long userId, String sourcePptUrl, Integer totalSlides, List<UploadPptRes.PptSlideRes> slides);
+    void markPptProcessing(Long scriptId, Long userId);
+
+    void savePptSuccess(Long scriptId, Long userId, String sourcePptUrl, Integer totalSlides, List<UploadPptRes.PptSlideRes> slides);
+
+    void markPptFailed(Long scriptId, Long userId, String errorMessage);
 }
