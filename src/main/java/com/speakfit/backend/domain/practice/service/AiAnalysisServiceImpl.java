@@ -91,7 +91,7 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
 
             return response != null ? (String) response.get("markedContent") : null;
         } catch (Exception e) {
-            log.error("AI 기호 대본 생성 실패 - 원인: {}", e.getMessage());
+            log.error("AI 기호 대본 생성 실패", e);
             return null;
         }
     }

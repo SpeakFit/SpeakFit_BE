@@ -300,7 +300,7 @@ public class PracticeServiceImpl implements PracticeService {
                         .index(last.getIndex())
                         .word(last.getWord())
                         .hasBreak(token.equals("/") || last.isHasBreak())
-                        .isEmphasis(token.equals("*") || last.isEmphasis())
+                        .emphasis(token.equals("*") || last.isEmphasis())
                         .build());
                 continue;
             }
@@ -314,7 +314,7 @@ public class PracticeServiceImpl implements PracticeService {
                         .index(index++)
                         .word(cleanWord)
                         .hasBreak(hasBreak)
-                        .isEmphasis(isEmphasis)
+                        .emphasis(isEmphasis)
                         .build());
             }
         }
