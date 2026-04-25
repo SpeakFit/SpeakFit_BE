@@ -53,6 +53,16 @@ class GenerateScriptRequest(BaseModel):
     purpose: str
     keywords: Optional[str] = None
 
+class UpdateScriptRequest(BaseModel):
+    topic: str
+    content: str
+    time: int
+    audienceAge: str
+    audienceLevel: str
+    speechType: str
+    purpose: str
+    keywords: Optional[str] = None
+
 # --- 유틸리티 함수 ---
 
 def analyze_voice_features(file_path):
@@ -252,6 +262,59 @@ async def generate_script(req: GenerateScriptRequest):
     except Exception as e:
         print(f"[Python] AI script generation failed: {e}")
         raise HTTPException(status_code=500, detail="AI script generation failed") from e
+
+@app.post("/scripts/update")
+async def update_script(req: UpdateScriptRequest):
+    print("[Python] AI script update request received")
+
+    if not model:
+        raise HTTPException(status_code=503, detail="AI model is not configured")
+
+    prompt = f"""
+    당신은 발표 대본을 개선하는 전문 스피치 코치입니다.
+
+    아래 기존 대본을 발표 조건에 맞게 최적화해주세요.
+    발표자는 "{req.topic}"을 주제로 {req.time}분 동안 발표합니다.
+    청중은 "{req.audienceAge}" 연령대이며, 해당 주제에 대한 지식수준은 "{req.audienceLevel}"입니다.
+    발표 형식은 "{req.speechType}"이고, 발표 목적은 "{req.purpose}"입니다.
+    발표에서 특히 강조해야 할 키워드는 "{req.keywords or "없음"}"입니다.
+
+    기존 대본:
+    {req.content}
+
+    최적화 규칙:
+    1. 기존 대본의 핵심 의미와 발표 주제는 유지해주세요.
+    2. 발표 시간이 {req.time}분에 맞도록 문장 길이와 정보량을 조절해주세요.
+    3. 청중 연령대와 지식수준에 맞게 설명 난이도, 예시, 어휘를 조정해주세요.
+    4. 발표 형식에 맞게 말투와 구성 방식을 다듬어주세요.
+    5. 발표 목적이 더 분명하게 드러나도록 도입과 결론을 보강해주세요.
+    6. 강조 키워드가 있으면 문맥 안에 자연스럽게 반영해주세요.
+    7. 발표자가 바로 읽을 수 있는 문장형 대본으로만 작성하고, 수정 이유나 설명은 쓰지 마세요.
+    8. Markdown 코드블록 없이 JSON 객체 하나만 출력해주세요.
+
+    출력 형식:
+    {{
+      "optimizedScript": "최적화된 발표 대본 전체 내용"
+    }}
+    """
+
+    try:
+        response = model.generate_content(prompt)
+        json_str = response.text.replace("```json", "").replace("```", "").strip()
+        result = json.loads(json_str)
+        optimized_script = result.get("optimizedScript")
+
+        if not optimized_script:
+            raise HTTPException(status_code=502, detail="AI response does not contain optimizedScript")
+
+        return {
+            "optimizedScript": optimized_script
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Python] AI script update failed: {e}")
+        raise HTTPException(status_code=500, detail="AI script update failed") from e
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=5000)

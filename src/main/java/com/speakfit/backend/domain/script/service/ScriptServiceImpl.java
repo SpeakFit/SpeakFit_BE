@@ -2,8 +2,10 @@ package com.speakfit.backend.domain.script.service;
 
 import com.speakfit.backend.domain.script.dto.req.AddScriptReq;
 import com.speakfit.backend.domain.script.dto.req.AiGenerateScriptReq;
+import com.speakfit.backend.domain.script.dto.req.AiUpdateScriptReq;
 import com.speakfit.backend.domain.script.dto.res.AddScriptRes;
 import com.speakfit.backend.domain.script.dto.res.AiGenerateScriptRes;
+import com.speakfit.backend.domain.script.dto.res.AiUpdateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
@@ -211,6 +213,44 @@ public class ScriptServiceImpl implements ScriptService {
         } catch (Exception e) {
             log.error("AI 발표 대본 생성 실패 - userId: {}, topic: {}", userId, req.getTopic(), e);
             throw new CustomException(ScriptErrorCode.SCRIPT_AI_GENERATE_FAILED);
+        }
+    }
+
+    // AI 발표 대본 최적화 기능 구현
+    @Override
+    public AiUpdateScriptRes.Response updateScript(AiUpdateScriptReq.Request req, Long userId) {
+        if (!userRepository.existsById(userId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND);
+        }
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("topic", req.getTopic());
+        body.put("content", req.getContent());
+        body.put("time", req.getTime());
+        body.put("audienceAge", req.getAudienceAge().name());
+        body.put("audienceLevel", req.getAudienceLevel().name());
+        body.put("speechType", req.getSpeechType().name());
+        body.put("purpose", req.getPurpose());
+        body.put("keywords", req.getKeywords());
+
+        try {
+            AiUpdateScriptRes.Response response = webClient.post()
+                    .uri("/scripts/update")
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(AiUpdateScriptRes.Response.class)
+                    .block();
+
+            if (response == null || response.getOptimizedScript() == null || response.getOptimizedScript().isBlank()) {
+                throw new CustomException(ScriptErrorCode.SCRIPT_AI_UPDATE_FAILED);
+            }
+
+            return response;
+        } catch (CustomException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("AI 발표 대본 최적화 실패 - userId: {}, topic: {}", userId, req.getTopic(), e);
+            throw new CustomException(ScriptErrorCode.SCRIPT_AI_UPDATE_FAILED);
         }
     }
 }
