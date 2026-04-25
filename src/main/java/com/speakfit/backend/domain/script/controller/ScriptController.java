@@ -10,6 +10,7 @@ import com.speakfit.backend.domain.script.dto.res.AiUpdateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
+import com.speakfit.backend.domain.script.dto.res.UploadPptRes;
 import com.speakfit.backend.domain.script.service.ScriptService;
 import com.speakfit.backend.global.apiPayload.response.ApiResponse;
 import com.speakfit.backend.global.apiPayload.response.code.SuccessCode;
@@ -19,6 +20,7 @@ import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -64,5 +66,13 @@ public class ScriptController {
     @PostMapping("/ai-update")
     public ApiResponse<AiUpdateScriptRes.Response> updateScript(@RequestBody @Valid AiUpdateScriptReq.Request request, @AuthenticationPrincipal AuthPrincipal authPrincipal) {
         return ApiResponse.onSuccess(SuccessCode.OK, scriptService.updateScript(request, authPrincipal.getUserId()));
+    }
+
+    // PPT 파일 업로드 및 슬라이드 변환 구현
+    @PatchMapping("/{scriptId}/ppt")
+    public ApiResponse<UploadPptRes.Response> uploadPpt(@PathVariable @Positive Long scriptId,
+                                                         @RequestPart("file") MultipartFile file,
+                                                         @AuthenticationPrincipal AuthPrincipal authPrincipal) {
+        return ApiResponse.onSuccess(SuccessCode.OK, scriptService.uploadPpt(scriptId, file, authPrincipal.getUserId()));
     }
 }

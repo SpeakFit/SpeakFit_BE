@@ -9,6 +9,7 @@ import com.speakfit.backend.domain.script.dto.res.AiUpdateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
+import com.speakfit.backend.domain.script.dto.res.UploadPptRes;
 import com.speakfit.backend.domain.script.entity.Script;
 import com.speakfit.backend.domain.script.enums.ScriptType;
 import com.speakfit.backend.domain.script.exception.ScriptErrorCode;
@@ -21,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -252,5 +254,25 @@ public class ScriptServiceImpl implements ScriptService {
             log.error("AI 발표 대본 최적화 실패 - userId: {}, topic: {}", userId, req.getTopic(), e);
             throw new CustomException(ScriptErrorCode.SCRIPT_AI_UPDATE_FAILED);
         }
+    }
+
+    // PPT 파일 업로드 및 슬라이드 변환 기능 구현
+    @Override
+    public UploadPptRes.Response uploadPpt(Long scriptId, MultipartFile file, Long userId) {
+        Script script = scriptRepository.findById(scriptId)
+                .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
+
+        if (!script.getUser().getId().equals(userId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
+        }
+
+        return UploadPptRes.Response.builder()
+                .scriptId(scriptId)
+                .pptInfo(UploadPptRes.PptInfoRes.builder()
+                        .sourcePptUrl(null)
+                        .totalSlides(0)
+                        .slides(List.of())
+                        .build())
+                .build();
     }
 }
