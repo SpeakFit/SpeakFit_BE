@@ -22,7 +22,6 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class AiAnalysisServiceImpl implements AiAnalysisService {
 
     private final PracticeRepository practiceRepository;
@@ -36,13 +35,15 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
     @Async
     public void processAnalysisAsync(Long practiceId, String audioUrl) {
         try {
+            // DB 조회는 여기서 완료되고 커넥션은 즉시 반납됩니다.
             PracticeRecord record = practiceRepository.findByIdWithDetails(practiceId)
                     .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
 
+            // 외부 서버 호출 시에는 트랜잭션(커넥션)을 물고 있지 않습니다.
             PythonAnalysisRes pythonData = requestPythonAnalysis(record, audioUrl);
 
             if (pythonData != null) {
-                // 프록시를 통해 호출하므로 REQUIRES_NEW가 정상 작동합니다.
+                // 결과 저장은 내부에서 REQUIRES_NEW 트랜잭션으로 처리됩니다.
                 aiAnalysisTxService.saveResults(practiceId, pythonData);
             }
         } catch (Exception e) {
@@ -94,7 +95,7 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
 
             return response != null ? (String) response.get("markedContent") : null;
         } catch (Exception e) {
-            System.err.println("AI 기호 대본 생성 실패: " + e.getMessage());
+            log.error("AI 기호 대본 생성 실패 - 연습 ID: {}, 원인: {}", record.getId(), e.getMessage());
             return null;
         }
     }

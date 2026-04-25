@@ -20,7 +20,6 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class ScriptServiceImpl implements ScriptService {
 
     private final ScriptRepository scriptRepository;
@@ -56,6 +55,7 @@ public class ScriptServiceImpl implements ScriptService {
 
     // 발표 대본 목록 조회 기능 서비스 구현 구현
     @Override
+    @Transactional(readOnly = true)
     public List<GetScriptListRes.Response> getScripts(Long userId) {
 
 
@@ -76,6 +76,7 @@ public class ScriptServiceImpl implements ScriptService {
 
     // 발표 대본 상세 조회 기능 구현
     @Override
+    @Transactional(readOnly = true)
     public GetScriptDetailRes.Response getScript(Long scriptId, Long userId) {
         // 1. DB에서 대본 찾기
         Script script = scriptRepository.findById(scriptId)

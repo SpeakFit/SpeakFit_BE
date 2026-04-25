@@ -33,7 +33,6 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class PracticeServiceImpl implements PracticeService {
 
     private final PracticeRepository practiceRepository;
@@ -45,11 +44,12 @@ public class PracticeServiceImpl implements PracticeService {
     private final PracticeIssueRepository practiceIssueRepository;
     private final PracticeDetailRepository practiceDetailRepository;
     private final AiAnalysisService aiAnalysisService;
+    private final PracticeTxService practiceTxService;
 
     @Value("${app.websocket.base-url}")
     private String webSocketBaseUrl;
 
-    // 발표 연습 정보값 입력 및 스타일 추천 서비스 구현 구현
+    // 발표 연습 정보값 입력 및 스타일 추천 서비스 구현
     @Override
     @Transactional
     public InputPracticeInfoRes.Response inputPracticeInfo(Long scriptId, InputPracticeInfoReq.Request req, Long userId) {
@@ -90,11 +90,10 @@ public class PracticeServiceImpl implements PracticeService {
                 .build();
     }
 
-    // 추천 또는 선택한 발표 스타일 확정 및 낭독 기호 생성 서비스 구현 구현
+    // 추천 또는 선택한 발표 스타일 확정 및 낭독 기호 생성 서비스 구현
     @Override
-    @Transactional
     public SelectStyleRes.Response selectStyle(Long practiceId, SelectStyleReq.Request req, Long userId) {
-        // 1. 연습 기록 조회 및 권한 체크
+        // 1. 연습 기록 조회 및 권한 체크 (조회는 트랜잭션 없이 수행)
         PracticeRecord record = practiceRepository.findById(practiceId)
                 .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
 
@@ -102,21 +101,19 @@ public class PracticeServiceImpl implements PracticeService {
             throw new CustomException(PracticeErrorCode.PRACTICE_ACCESS_DENIED);
         }
 
-        // 2. 선택한 스타일 조회 및 업데이트
+        // 2. 선택한 스타일 조회
         SpeechStyle style = speechStyleRepository.findById(req.getStyleId())
                 .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
-        
-        record.selectStyle(style);
 
-        // 3. AI를 통해 낭독 기호 대본 생성 및 Script 업데이트
+        // 3. AI를 통해 낭독 기호 대본 생성 (트랜잭션 밖에서 수행하여 커넥션 점유 방지)
         String markedContent = aiAnalysisService.generateMarkedContent(record.getScript(), style, record);
-        if (markedContent != null) {
-            record.getScript().updateMarkedContent(markedContent);
-            scriptRepository.save(record.getScript());
-        }
 
-        // 4. 낭독 가이드(contentList) 생성 및 반환
-        List<SelectStyleRes.ContentRes> contentList = parseMarkedContentToSelectStyleRes(record.getScript().getMarkedContent());
+        // 4. 스타일 확정 및 대본 업데이트 (DB 작업만 트랜잭션으로 처리)
+        practiceTxService.updateStyleAndMarkedContent(practiceId, style.getId(), markedContent);
+
+        // 5. 낭독 가이드(contentList) 생성 및 반환
+        // 최신화된 markedContent를 다시 조회하지 않고, 생성된 결과를 사용하거나 DB 재조회 없이 처리
+        List<SelectStyleRes.ContentRes> contentList = parseMarkedContentToSelectStyleRes(markedContent);
         
         return SelectStyleRes.Response.builder()
                 .practiceId(record.getId())
@@ -146,7 +143,7 @@ public class PracticeServiceImpl implements PracticeService {
         return list;
     }
 
-    // 발표 연습 시작 (실제 녹음/분석 활성화) 서비스 구현 구현
+    // 발표 연습 시작 (실제 녹음/분석 활성화) 서비스 구현
     @Override
     @Transactional
     public StartPracticeRes.Response startPractice(Long practiceId, Long userId) {
@@ -176,9 +173,8 @@ public class PracticeServiceImpl implements PracticeService {
                 .build();
     }
 
-    // 발표 연습 종료 및 분석 트리거 서비스 구현 구현
+    // 발표 연습 종료 및 분석 트리거 서비스 구현
     @Override
-    @Transactional
     public StopPracticeRes.Response stopPractice(Long practiceId, StopPracticeReq.Request req, Long userId) {
         // 1. 연습 기록 조회 및 권한 체크
         PracticeRecord practiceRecord = practiceRepository.findById(practiceId)
@@ -188,25 +184,25 @@ public class PracticeServiceImpl implements PracticeService {
             throw new CustomException(PracticeErrorCode.PRACTICE_ACCESS_DENIED);
         }
 
-        // 2. 전체 녹음 파일 업로드
+        // 2. 전체 녹음 파일 업로드 (가장 오래 걸리는 I/O를 트랜잭션 밖에서 수행)
         String audioUrl = uploadAudioFile(practiceId, req.getAudio());
 
-        // 3. 상태 변경 (ANALYZING) 및 결과 기록
-        practiceRecord.stopRecording(audioUrl, req.getTime());
-        practiceRecord.updateStatus(Status.ANALYZING); 
+        // 3. 상태 변경 및 결과 기록 (DB 작업만 트랜잭션으로 처리)
+        practiceTxService.saveStopPracticeResults(practiceId, audioUrl, req.getTime());
 
         // 4. 비동기 AI 분석 프로세스 시작
         aiAnalysisService.processAnalysisAsync(practiceRecord.getId(), audioUrl);
 
         return StopPracticeRes.Response.builder()
                 .practiceId(practiceRecord.getId())
-                .status(practiceRecord.getStatus())
-                .audioUrl(practiceRecord.getAudioUrl())
+                .status(Status.ANALYZING)
+                .audioUrl(audioUrl)
                 .build();
     }
 
-    // 발표 연습 결과 리포트 조회 서비스 구현 구현
+    // 발표 연습 결과 리포트 조회 서비스 구현
     @Override
+    @Transactional(readOnly = true)
     public GetPracticeReportRes.Response getPracticeReport(Long practiceId, Long userId) {
         // 1. 연습 기록 조회 및 권한 확인
         PracticeRecord record = practiceRepository.findById(practiceId)
