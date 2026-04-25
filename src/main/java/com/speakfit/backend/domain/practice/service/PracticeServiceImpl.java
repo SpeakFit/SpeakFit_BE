@@ -94,7 +94,7 @@ public class PracticeServiceImpl implements PracticeService {
     @Override
     public SelectStyleRes.Response selectStyle(Long practiceId, SelectStyleReq.Request req, Long userId) {
         // 1. 연습 기록 조회 및 권한 체크 (조회는 트랜잭션 없이 수행)
-        PracticeRecord record = practiceRepository.findById(practiceId)
+        PracticeRecord record = practiceRepository.findByIdWithDetails(practiceId)
                 .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
 
         if (!record.getUser().getId().equals(userId)) {
