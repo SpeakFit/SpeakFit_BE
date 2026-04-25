@@ -6,3 +6,4 @@ numpy
 scipy
 google-generativeai
 python-dotenv
+PyMuPDF

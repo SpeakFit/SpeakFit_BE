@@ -9,6 +9,8 @@ from typing import Optional
 from dotenv import load_dotenv
 import uvicorn
 import json
+import shutil
+import subprocess
 
 # 환경 설정 로드
 load_dotenv(os.path.join(os.path.dirname(__file__), '../.env'))
@@ -62,6 +64,10 @@ class UpdateScriptRequest(BaseModel):
     speechType: str
     purpose: str
     keywords: Optional[str] = None
+
+class ConvertPptRequest(BaseModel):
+    pptPath: str
+    outputDir: str
 
 # --- 유틸리티 함수 ---
 
@@ -315,6 +321,110 @@ async def update_script(req: UpdateScriptRequest):
     except Exception as e:
         print(f"[Python] AI script update failed: {e}")
         raise HTTPException(status_code=500, detail="AI script update failed") from e
+
+def find_libreoffice():
+    """LibreOffice 실행 파일 경로를 찾습니다."""
+    env_path = os.getenv("LIBREOFFICE_PATH")
+    if env_path and os.path.exists(env_path):
+        return env_path
+
+    command_path = shutil.which("soffice") or shutil.which("libreoffice")
+    if command_path:
+        return command_path
+
+    candidates = [
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+
+    return None
+
+def convert_ppt_to_pdf(ppt_path, output_dir):
+    """LibreOffice를 사용해 PPT/PPTX 파일을 PDF로 변환합니다."""
+    libreoffice_path = find_libreoffice()
+    if not libreoffice_path:
+        raise HTTPException(status_code=503, detail="LibreOffice is not installed or configured")
+
+    os.makedirs(output_dir, exist_ok=True)
+    command = [
+        libreoffice_path,
+        "--headless",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        output_dir,
+        ppt_path,
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    if result.returncode != 0:
+        print(f"[Python] LibreOffice conversion failed: {result.stderr}")
+        raise HTTPException(status_code=500, detail="PPT to PDF conversion failed")
+
+    base_name = os.path.splitext(os.path.basename(ppt_path))[0]
+    pdf_path = os.path.join(output_dir, base_name + ".pdf")
+    if not os.path.exists(pdf_path):
+        raise HTTPException(status_code=500, detail="Converted PDF file not found")
+
+    return pdf_path
+
+def render_pdf_to_images(pdf_path, output_dir):
+    """PDF 각 페이지를 PNG 이미지로 렌더링합니다."""
+    try:
+        import fitz
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail="PyMuPDF is not installed") from e
+
+    slides_dir = os.path.join(output_dir, "slides")
+    os.makedirs(slides_dir, exist_ok=True)
+
+    document = fitz.open(pdf_path)
+    slides = []
+    try:
+        for page_index in range(document.page_count):
+            page = document.load_page(page_index)
+            pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+            image_path = os.path.join(slides_dir, f"{page_index + 1}.png")
+            pixmap.save(image_path)
+            slides.append({
+                "page": page_index + 1,
+                "imageUrl": image_path
+            })
+    finally:
+        document.close()
+
+    return slides
+
+@app.post("/ppt/convert")
+async def convert_ppt(req: ConvertPptRequest):
+    print("[Python] PPT conversion request received")
+
+    ppt_path = os.path.abspath(req.pptPath)
+    output_dir = os.path.abspath(req.outputDir)
+
+    if not os.path.exists(ppt_path):
+        raise HTTPException(status_code=404, detail="PPT file not found")
+
+    extension = os.path.splitext(ppt_path)[1].lower()
+    if extension not in [".ppt", ".pptx"]:
+        raise HTTPException(status_code=400, detail="Only PPT or PPTX files are supported")
+
+    try:
+        pdf_path = convert_ppt_to_pdf(ppt_path, output_dir)
+        slides = render_pdf_to_images(pdf_path, output_dir)
+
+        return {
+            "sourcePptUrl": ppt_path,
+            "totalSlides": len(slides),
+            "slides": slides
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Python] PPT conversion failed: {e}")
+        raise HTTPException(status_code=500, detail="PPT conversion failed") from e
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=5000)
