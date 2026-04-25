@@ -1,19 +1,17 @@
 package com.speakfit.backend.domain.practice.service;
 
 import com.speakfit.backend.domain.practice.dto.res.PythonAnalysisRes;
-import com.speakfit.backend.domain.practice.entity.AiAnalysisResult;
-import com.speakfit.backend.domain.practice.entity.AnalysisResult;
 import com.speakfit.backend.domain.practice.entity.PracticeRecord;
-import com.speakfit.backend.domain.practice.enums.Status;
+import com.speakfit.backend.domain.practice.exception.PracticeErrorCode;
 import com.speakfit.backend.domain.practice.repository.AiAnalysisResultRepository;
 import com.speakfit.backend.domain.practice.repository.AnalysisResultRepository;
 import com.speakfit.backend.domain.practice.repository.PracticeRepository;
 import com.speakfit.backend.domain.script.entity.Script;
 import com.speakfit.backend.domain.style.entity.SpeechStyle;
+import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.HashMap;
@@ -25,76 +23,28 @@ public class AiAnalysisService {
 
     private final PracticeRepository practiceRepository;
     private final AnalysisResultRepository analysisResultRepository;
+    private final AiAnalysisTxService aiAnalysisTxService;
     private final AiAnalysisResultRepository aiAnalysisResultRepository;
     private final WebClient webClient;
 
     // 비동기 분석 및 결과 저장 로직 구현
     @Async
-    @Transactional
     public void processAnalysisAsync(Long practiceId, String audioUrl) {
         try {
-            PracticeRecord record = practiceRepository.findById(practiceId).orElseThrow();
-            
-            // 1. 파이썬 분석 서버에 데이터 요청 (모든 컨텍스트 포함)
+            PracticeRecord record = practiceRepository.findByIdWithDetails(practiceId)
+                    .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
+
             PythonAnalysisRes pythonData = requestPythonAnalysis(record, audioUrl);
 
-            // 2. 응답이 성공적이면 결과 저장
             if (pythonData != null) {
-                saveResults(practiceId, pythonData);
+                // 프록시를 통해 호출하므로 REQUIRES_NEW가 정상 작동합니다.
+                aiAnalysisTxService.saveResults(practiceId, pythonData);
             }
         } catch (Exception e) {
-            System.err.println("비동기 분석 실패: " + e.getMessage());
-            handleAnalysisFailure(practiceId);
+            aiAnalysisTxService.handleAnalysisFailure(practiceId);
         }
     }
 
-    // 파이썬 서버로부터 받은 분석 결과를 DB에 저장
-    @Transactional
-    public void saveResults(Long practiceId, PythonAnalysisRes data) {
-        PracticeRecord record = practiceRepository.findById(practiceId).orElseThrow();
-
-        // 1. 정량 지표 데이터(AnalysisResult) 저장/업데이트
-        AnalysisResult analysisResult = analysisResultRepository.findByPracticeRecord(record)
-                .orElse(AnalysisResult.builder().practiceRecord(record).build());
-
-        analysisResult.updateData(
-                data.getAvgWpm(), data.getAvgPitch(), data.getAvgIntensity(), data.getAvgZcr(),
-                data.getPauseRatio(), data.getWpmDiff(), data.getPitchDiff(),
-                data.getIntensityDiff(), data.getZcrDiff(), data.getPauseCount()
-        );
-        analysisResultRepository.save(analysisResult);
-
-        // 2. AI 상세 피드백(AiAnalysisResult) 저장
-        // 매번 새로 생성하여 AI 분석의 최신성을 보장 (MapsId 구조이므로 recordId 명시)
-        AiAnalysisResult aiResult = AiAnalysisResult.builder()
-                .recordId(record.getId())
-                .practiceRecord(record)
-                .aiSummary(data.getAiSummary())
-                .wpmSummary(data.getWpmSummary())
-                .wpmFeedback(data.getWpmFeedback())
-                .energySummary(data.getEnergySummary())
-                .energyFeedback(data.getEnergyFeedback())
-                .pauseFeedback(data.getPauseFeedback())
-                .symbolFeedback(data.getSymbolFeedback())
-                .goalSimilarityScore(data.getGoalSimilarityScore())
-                .goalSummary(data.getGoalSummary())
-                .goalFeedback(data.getGoalFeedback())
-                .build();
-        
-        aiAnalysisResultRepository.save(aiResult);
-
-        // 3. 연습 기록 상태를 ANALYZED로 최종 변경
-        record.updateStatus(Status.ANALYZED);
-        practiceRepository.save(record);
-    }
-
-    @Transactional
-    public void handleAnalysisFailure(Long practiceId) {
-        practiceRepository.findById(practiceId).ifPresent(record -> {
-            record.updateStatus(Status.FAILED);
-            practiceRepository.save(record);
-        });
-    }
 
     // 파이썬 분석 서버와의 실제 통신 로직 완성
     private PythonAnalysisRes requestPythonAnalysis(PracticeRecord record, String audioUrl) {
