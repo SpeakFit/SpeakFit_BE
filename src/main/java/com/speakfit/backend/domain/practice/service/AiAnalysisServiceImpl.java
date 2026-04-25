@@ -76,13 +76,9 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
 
     // 파이썬 서버에 대본 기호 생성(Marking) 요청 구현
     @Override
-    public String generateMarkedContent(Script script, SpeechStyle style, PracticeRecord record) {
+    public String generateMarkedContent(String content) {
         Map<String, Object> body = new HashMap<>();
-        body.put("content", script.getContent());
-        body.put("style", style.getStyleType());
-        body.put("audienceType", record.getAudienceType().toString());
-        body.put("audienceUnderstanding", record.getAudienceUnderstanding().toString());
-        body.put("speechInformation", record.getSpeechInformation().toString());
+        body.put("content", content);
 
         try {
             // /scripts/mark 엔드포인트 호출
@@ -95,7 +91,7 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
 
             return response != null ? (String) response.get("markedContent") : null;
         } catch (Exception e) {
-            log.error("AI 기호 대본 생성 실패 - 연습 ID: {}, 원인: {}", record.getId(), e.getMessage());
+            log.error("AI 기호 대본 생성 실패 - 원인: {}", e.getMessage());
             return null;
         }
     }

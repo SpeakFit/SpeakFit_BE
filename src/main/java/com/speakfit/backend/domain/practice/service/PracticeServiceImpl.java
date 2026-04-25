@@ -90,7 +90,7 @@ public class PracticeServiceImpl implements PracticeService {
                 .build();
     }
 
-    // 추천 또는 선택한 발표 스타일 확정 및 낭독 기호 생성 서비스 구현
+    // 추천 또는 선택한 발표 스타일 확정 및 낭독 가이드 반환 서비스 구현
     @Override
     public SelectStyleRes.Response selectStyle(Long practiceId, SelectStyleReq.Request req, Long userId) {
         // 1. 연습 기록 조회 및 권한 체크 (조회는 트랜잭션 없이 수행)
@@ -105,16 +105,13 @@ public class PracticeServiceImpl implements PracticeService {
         SpeechStyle style = speechStyleRepository.findById(req.getStyleId())
                 .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
 
-        // 3. AI를 통해 낭독 기호 대본 생성 (트랜잭션 밖에서 수행하여 커넥션 점유 방지)
-        String markedContent = aiAnalysisService.generateMarkedContent(record.getScript(), style, record);
+        // 3. 스타일 확정 (DB 작업만 트랜잭션으로 처리)
+        practiceTxService.updateStyle(practiceId, style.getId());
 
-        // 4. 스타일 확정 및 대본 업데이트 (DB 작업만 트랜잭션으로 처리)
-        practiceTxService.updateStyleAndMarkedContent(practiceId, style.getId(), markedContent);
+        // 4. 낭독 가이드(contentList) 생성 및 반환
+        // 대본에 이미 저장된 markedContent를 사용
+        List<SelectStyleRes.ContentRes> contentList = parseMarkedContentToSelectStyleRes(record.getScript().getMarkedContent());
 
-        // 5. 낭독 가이드(contentList) 생성 및 반환
-        // 최신화된 markedContent를 다시 조회하지 않고, 생성된 결과를 사용하거나 DB 재조회 없이 처리
-        List<SelectStyleRes.ContentRes> contentList = parseMarkedContentToSelectStyleRes(markedContent);
-        
         return SelectStyleRes.Response.builder()
                 .practiceId(record.getId())
                 .styleType(style.getStyleType())
@@ -125,18 +122,33 @@ public class PracticeServiceImpl implements PracticeService {
     private List<SelectStyleRes.ContentRes> parseMarkedContentToSelectStyleRes(String markedContent) {
         List<SelectStyleRes.ContentRes> list = new ArrayList<>();
         if (markedContent == null) return list;
+
         String[] tokens = markedContent.split("\\s+");
         int index = 0;
+
         for (String token : tokens) {
+            // 단독 기호 처리: 이전 단어의 속성으로 병합
+            if ((token.equals("/") || token.equals("*")) && !list.isEmpty()) {
+                SelectStyleRes.ContentRes last = list.get(list.size() - 1);
+                list.set(list.size() - 1, SelectStyleRes.ContentRes.builder()
+                        .index(last.getIndex())
+                        .word(last.getWord())
+                        .hasBreak(token.equals("/") || last.isHasBreak())
+                        .emphasis(token.equals("*") || last.isEmphasis())
+                        .build());
+                continue;
+            }
+
             boolean hasBreak = token.contains("/");
             boolean isEmphasis = token.contains("*");
             String cleanWord = token.replace("/", "").replace("*", "");
+
             if (!cleanWord.isEmpty()) {
                 list.add(SelectStyleRes.ContentRes.builder()
                         .index(index++)
                         .word(cleanWord)
                         .hasBreak(hasBreak)
-                        .isEmphasis(isEmphasis)
+                        .emphasis(isEmphasis)
                         .build());
             }
         }
@@ -227,7 +239,7 @@ public class PracticeServiceImpl implements PracticeService {
         List<PracticeIssue> issues = practiceIssueRepository.findAllByPracticeRecordId(record.getId());
         List<PracticeDetail> details = practiceDetailRepository.findAllByPracticeRecordIdOrderByWordIndexAsc(record.getId());
 
-        // 4. 실시간 단어 분석 데이터를 문장 단위로 병합
+        // 4. 실시간 분석 데이터를 문장 단위로 병합
         List<GetPracticeReportRes.SentenceRes> sentences = mergeDetailsToSentences(record.getScript().getContent(), details);
 
         // 5. 최종 리포트 DTO 조립 및 반환
@@ -276,12 +288,27 @@ public class PracticeServiceImpl implements PracticeService {
     private List<StartPracticeRes.ContentRes> parseMarkedContent(String markedContent) {
         List<StartPracticeRes.ContentRes> list = new ArrayList<>();
         if (markedContent == null || markedContent.isEmpty()) return list;
+
         String[] tokens = markedContent.split("\\s+");
         int index = 0;
+
         for (String token : tokens) {
+            // 단독 기호 처리
+            if ((token.equals("/") || token.equals("*")) && !list.isEmpty()) {
+                StartPracticeRes.ContentRes last = list.get(list.size() - 1);
+                list.set(list.size() - 1, StartPracticeRes.ContentRes.builder()
+                        .index(last.getIndex())
+                        .word(last.getWord())
+                        .hasBreak(token.equals("/") || last.isHasBreak())
+                        .isEmphasis(token.equals("*") || last.isEmphasis())
+                        .build());
+                continue;
+            }
+
             boolean hasBreak = token.contains("/");
             boolean isEmphasis = token.contains("*");
             String cleanWord = token.replace("/", "").replace("*", "");
+
             if (!cleanWord.isEmpty()) {
                 list.add(StartPracticeRes.ContentRes.builder()
                         .index(index++)
