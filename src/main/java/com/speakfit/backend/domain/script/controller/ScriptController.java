@@ -3,8 +3,10 @@ package com.speakfit.backend.domain.script.controller;
 
 import com.speakfit.backend.domain.script.dto.req.AddScriptReq;
 import com.speakfit.backend.domain.script.dto.req.AiGenerateScriptReq;
+import com.speakfit.backend.domain.script.dto.req.AiUpdateScriptReq;
 import com.speakfit.backend.domain.script.dto.res.AddScriptRes;
 import com.speakfit.backend.domain.script.dto.res.AiGenerateScriptRes;
+import com.speakfit.backend.domain.script.dto.res.AiUpdateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
@@ -56,5 +58,11 @@ public class ScriptController {
     @PostMapping("/ai-generate")
     public ApiResponse<AiGenerateScriptRes.Response> generateScript(@RequestBody @Valid AiGenerateScriptReq.Request request, @AuthenticationPrincipal AuthPrincipal authPrincipal) {
         return ApiResponse.onSuccess(SuccessCode.OK, scriptService.generateScript(request, authPrincipal.getUserId()));
+    }
+
+    // AI 발표 대본 최적화 구현
+    @PostMapping("/ai-update")
+    public ApiResponse<AiUpdateScriptRes.Response> updateScript(@RequestBody @Valid AiUpdateScriptReq.Request request, @AuthenticationPrincipal AuthPrincipal authPrincipal) {
+        return ApiResponse.onSuccess(SuccessCode.OK, scriptService.updateScript(request, authPrincipal.getUserId()));
     }
 }
