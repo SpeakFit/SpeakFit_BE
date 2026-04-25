@@ -24,6 +24,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -266,13 +270,56 @@ public class ScriptServiceImpl implements ScriptService {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
 
+        String sourcePptUrl = savePptFile(scriptId, file);
+
         return UploadPptRes.Response.builder()
                 .scriptId(scriptId)
                 .pptInfo(UploadPptRes.PptInfoRes.builder()
-                        .sourcePptUrl(null)
+                        .sourcePptUrl(sourcePptUrl)
                         .totalSlides(0)
                         .slides(List.of())
                         .build())
                 .build();
+    }
+
+    // PPT 원본 파일 저장 기능 구현
+    private String savePptFile(Long scriptId, MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_EMPTY_FILE);
+        }
+
+        String extension = getPptFileExtension(file.getOriginalFilename());
+        if (!extension.equals(".ppt") && !extension.equals(".pptx")) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_INVALID_EXTENSION);
+        }
+
+        try {
+            Path uploadDirPath = Paths.get("uploads/ppt/" + scriptId).toAbsolutePath().normalize();
+            if (!Files.exists(uploadDirPath)) {
+                Files.createDirectories(uploadDirPath);
+            }
+
+            Path filePath = uploadDirPath.resolve("source" + extension).normalize();
+            Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
+            return filePath.toString();
+        } catch (Exception e) {
+            log.error("PPT 파일 저장 실패 - scriptId: {}", scriptId, e);
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_UPLOAD_FAILED);
+        }
+    }
+
+    // PPT 파일 확장자 추출 기능 구현
+    private String getPptFileExtension(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return "";
+        }
+
+        String cleanFileName = Paths.get(fileName).getFileName().toString();
+        int dotIndex = cleanFileName.lastIndexOf(".");
+        if (dotIndex < 0) {
+            return "";
+        }
+
+        return cleanFileName.substring(dotIndex).toLowerCase();
     }
 }
