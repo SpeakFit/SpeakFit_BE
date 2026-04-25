@@ -247,9 +247,11 @@ async def generate_script(req: GenerateScriptRequest):
         return {
             "generatedScript": generated_script
         }
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[Python] AI script generation failed: {e}")
-        raise HTTPException(status_code=500, detail="AI script generation failed")
+        raise HTTPException(status_code=500, detail="AI script generation failed") from e
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=5000)

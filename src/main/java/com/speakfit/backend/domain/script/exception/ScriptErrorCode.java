@@ -9,7 +9,7 @@ import org.springframework.http.HttpStatus;
 public enum ScriptErrorCode implements BaseCode {
     // 400 Bad Request
     SCRIPT_EMPTY_INPUT(HttpStatus.BAD_REQUEST, "SCRIPT400_1", "발표 대본 제목 또는 내용을 입력해주세요."),
-    SCRIPT_AI_GENERATE_FAILED(HttpStatus.BAD_REQUEST, "SCRIPT400_2", "AI 발표 대본 생성에 실패했습니다."),
+    SCRIPT_AI_GENERATE_FAILED(HttpStatus.BAD_GATEWAY, "SCRIPT502_1", "AI 발표 대본 생성에 실패했습니다."),
     // 403 Forbidden
     SCRIPT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "SCRIPT403_1", "해당 대본에 대한 접근 권한이 없습니다."),
     // 404 Not Found

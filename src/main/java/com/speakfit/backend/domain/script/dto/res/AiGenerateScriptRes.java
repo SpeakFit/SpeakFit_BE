@@ -1,5 +1,6 @@
 package com.speakfit.backend.domain.script.dto.res;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -11,6 +12,7 @@ public class AiGenerateScriptRes {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class Response {
+        @JsonProperty("generatedScript")
         private String generatedScript;
     }
 }

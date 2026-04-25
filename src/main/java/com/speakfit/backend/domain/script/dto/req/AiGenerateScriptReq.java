@@ -1,7 +1,11 @@
 package com.speakfit.backend.domain.script.dto.req;
 
+import com.speakfit.backend.domain.practice.enums.AudienceType;
+import com.speakfit.backend.domain.practice.enums.AudienceUnderstanding;
+import com.speakfit.backend.domain.practice.enums.SpeechInformation;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
@@ -20,16 +24,17 @@ public class AiGenerateScriptReq {
 
         @NotNull(message = "발표 시간은 필수입니다.")
         @Positive(message = "발표 시간은 1분 이상이어야 합니다.")
+        @Max(value = 15, message = "발표 시간은 15분을 넘을 수 없습니다.")
         private Integer time;
 
         @NotNull(message = "청중 연령대는 필수입니다.")
-        private AudienceAge audienceAge;
+        private AudienceType audienceAge;
 
         @NotNull(message = "청중 지식수준은 필수입니다.")
-        private AudienceLevel audienceLevel;
+        private AudienceUnderstanding audienceLevel;
 
         @NotNull(message = "스피치 유형은 필수입니다.")
-        private SpeechType speechType;
+        private SpeechInformation speechType;
 
         @NotBlank(message = "발표 목적은 필수입니다.")
         @Size(max = 1000, message = "발표 목적은 1000자를 넘을 수 없습니다.")
@@ -39,24 +44,4 @@ public class AiGenerateScriptReq {
         private String keywords;
     }
 
-    public enum AudienceAge {
-        CHILD,
-        YOUTH,
-        ADULT,
-        ELDERLY
-    }
-
-    public enum AudienceLevel {
-        LOW,
-        MEDIUM,
-        HIGH
-    }
-
-    public enum SpeechType {
-        PRESENTATION,
-        INTERVIEW,
-        LECTURE,
-        DISCUSSION,
-        FEEDBACK
-    }
 }

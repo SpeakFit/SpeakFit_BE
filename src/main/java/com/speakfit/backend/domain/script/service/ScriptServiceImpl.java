@@ -15,6 +15,7 @@ import com.speakfit.backend.domain.practice.service.AiAnalysisService;
 import com.speakfit.backend.domain.user.repository.UserRepository;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -26,6 +27,7 @@ import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ScriptServiceImpl implements ScriptService {
 
     private final ScriptRepository scriptRepository;
@@ -191,17 +193,24 @@ public class ScriptServiceImpl implements ScriptService {
         body.put("purpose", req.getPurpose());
         body.put("keywords", req.getKeywords());
 
-        AiGenerateScriptRes.Response response = webClient.post()
-                .uri("/scripts/generate")
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(AiGenerateScriptRes.Response.class)
-                .block();
+        try {
+            AiGenerateScriptRes.Response response = webClient.post()
+                    .uri("/scripts/generate")
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(AiGenerateScriptRes.Response.class)
+                    .block();
 
-        if (response == null || response.getGeneratedScript() == null || response.getGeneratedScript().isBlank()) {
+            if (response == null || response.getGeneratedScript() == null || response.getGeneratedScript().isBlank()) {
+                throw new CustomException(ScriptErrorCode.SCRIPT_AI_GENERATE_FAILED);
+            }
+
+            return response;
+        } catch (CustomException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("AI 발표 대본 생성 실패 - userId: {}, topic: {}", userId, req.getTopic(), e);
             throw new CustomException(ScriptErrorCode.SCRIPT_AI_GENERATE_FAILED);
         }
-
-        return response;
     }
 }
