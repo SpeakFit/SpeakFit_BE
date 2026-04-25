@@ -43,10 +43,6 @@ class AnalyzeRequest(BaseModel):
 
 class MarkRequest(BaseModel):
     content: str
-    style: str
-    audienceType: str
-    audienceUnderstanding: str
-    speechInformation: str
 
 # --- 유틸리티 함수 ---
 
@@ -181,11 +177,6 @@ async def mark_script(req: MarkRequest):
 
     prompt = f"""
     당신은 스피치 전문가입니다. 다음 대본을 분석하여 사용자가 낭독할 때 참고할 수 있는 기호를 삽입해 주세요.
-    
-    [상황 정보]
-    - 청중: {req.audienceType} (이해도: {req.audienceUnderstanding})
-    - 종류: {req.speechInformation}
-    - 목표 스타일: {req.style}
     
     [원본 대본]
     {req.content}

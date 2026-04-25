@@ -32,6 +32,6 @@ public class SelectStyleRes {
         private boolean hasBreak;
         
         @JsonProperty("isEmphasis")
-        private boolean isEmphasis;
+        private boolean emphasis;
     }
 }

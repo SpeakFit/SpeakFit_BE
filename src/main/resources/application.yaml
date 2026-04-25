@@ -4,6 +4,9 @@ spring:
 
   jackson:
     time-zone: Asia/Seoul
+    json:
+      read:
+        allow-unescaped-control-chars: true
 
 logging:
   level:

@@ -9,5 +9,5 @@ public interface AiAnalysisService {
     void processAnalysisAsync(Long practiceId, String audioUrl);
 
     // 파이썬 서버에 대본 기호 생성(Marking) 요청 정의
-    String generateMarkedContent(Script script, SpeechStyle style, PracticeRecord record);
+    String generateMarkedContent(String content);
 }
