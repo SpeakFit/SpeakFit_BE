@@ -2,7 +2,9 @@ package com.speakfit.backend.domain.script.controller;
 
 
 import com.speakfit.backend.domain.script.dto.req.AddScriptReq;
+import com.speakfit.backend.domain.script.dto.req.AiGenerateScriptReq;
 import com.speakfit.backend.domain.script.dto.res.AddScriptRes;
+import com.speakfit.backend.domain.script.dto.res.AiGenerateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
@@ -48,5 +50,11 @@ public class ScriptController {
     @DeleteMapping("/{scriptId}")
     public ApiResponse<DeleteScriptRes.Response> deleteScript(@PathVariable @Positive Long scriptId, @AuthenticationPrincipal AuthPrincipal authPrincipal) {
         return ApiResponse.onSuccess(SuccessCode.OK, scriptService.deleteScript(scriptId, authPrincipal.getUserId()));
+    }
+
+    // AI 발표 대본 초안 생성 구현
+    @PostMapping("/ai-generate")
+    public ApiResponse<AiGenerateScriptRes.Response> generateScript(@RequestBody @Valid AiGenerateScriptReq.Request request, @AuthenticationPrincipal AuthPrincipal authPrincipal) {
+        return ApiResponse.onSuccess(SuccessCode.OK, scriptService.generateScript(request, authPrincipal.getUserId()));
     }
 }

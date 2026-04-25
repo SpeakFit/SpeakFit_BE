@@ -1,7 +1,9 @@
 package com.speakfit.backend.domain.script.service;
 
 import com.speakfit.backend.domain.script.dto.req.AddScriptReq;
+import com.speakfit.backend.domain.script.dto.req.AiGenerateScriptReq;
 import com.speakfit.backend.domain.script.dto.res.AddScriptRes;
+import com.speakfit.backend.domain.script.dto.res.AiGenerateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
@@ -15,9 +17,12 @@ import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -27,6 +32,7 @@ public class ScriptServiceImpl implements ScriptService {
     private final AiAnalysisService aiAnalysisService;
     private final ScriptTxService scriptTxService;
     private final UserRepository userRepository;
+    private final WebClient webClient;
 
     // 발표 대본 추가 기능 구현
     @Override
@@ -167,5 +173,35 @@ public class ScriptServiceImpl implements ScriptService {
         return DeleteScriptRes.Response.builder()
                 .id(scriptId)
                 .build();
+    }
+
+    // AI 발표 대본 초안 생성 기능 구현
+    @Override
+    public AiGenerateScriptRes.Response generateScript(AiGenerateScriptReq.Request req, Long userId) {
+        if (!userRepository.existsById(userId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND);
+        }
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("topic", req.getTopic());
+        body.put("time", req.getTime());
+        body.put("audienceAge", req.getAudienceAge().name());
+        body.put("audienceLevel", req.getAudienceLevel().name());
+        body.put("speechType", req.getSpeechType().name());
+        body.put("purpose", req.getPurpose());
+        body.put("keywords", req.getKeywords());
+
+        AiGenerateScriptRes.Response response = webClient.post()
+                .uri("/scripts/generate")
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(AiGenerateScriptRes.Response.class)
+                .block();
+
+        if (response == null || response.getGeneratedScript() == null || response.getGeneratedScript().isBlank()) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_AI_GENERATE_FAILED);
+        }
+
+        return response;
     }
 }

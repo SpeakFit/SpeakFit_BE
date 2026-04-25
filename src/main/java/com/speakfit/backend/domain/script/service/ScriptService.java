@@ -1,7 +1,9 @@
 package com.speakfit.backend.domain.script.service;
 
 import com.speakfit.backend.domain.script.dto.req.AddScriptReq;
+import com.speakfit.backend.domain.script.dto.req.AiGenerateScriptReq;
 import com.speakfit.backend.domain.script.dto.res.AddScriptRes;
+import com.speakfit.backend.domain.script.dto.res.AiGenerateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
@@ -20,4 +22,7 @@ public interface ScriptService {
 
     // 발표 대본 삭제 메서드 정의
     DeleteScriptRes.Response deleteScript(Long scriptId, Long userId);
+
+    // AI 발표 대본 초안 생성 메서드 정의
+    AiGenerateScriptRes.Response generateScript(AiGenerateScriptReq.Request req, Long userId);
 }
