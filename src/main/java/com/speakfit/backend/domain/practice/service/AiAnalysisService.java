@@ -13,6 +13,7 @@ import com.speakfit.backend.domain.style.entity.SpeechStyle;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -33,7 +34,8 @@ public class AiAnalysisService {
     @Transactional
     public void processAnalysisAsync(Long practiceId, String audioUrl) {
         try {
-            PracticeRecord record = practiceRepository.findById(practiceId).orElseThrow();
+            PracticeRecord record = practiceRepository.findByIdWithDetails(practiceId)
+                    .orElseThrow(() -> new RuntimeException("연습 기록을 찾을 수 없습니다."));
             
             // 1. 파이썬 분석 서버에 데이터 요청 (모든 컨텍스트 포함)
             PythonAnalysisRes pythonData = requestPythonAnalysis(record, audioUrl);
@@ -49,11 +51,11 @@ public class AiAnalysisService {
     }
 
     // 파이썬 서버로부터 받은 분석 결과를 DB에 저장
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void saveResults(Long practiceId, PythonAnalysisRes data) {
-        PracticeRecord record = practiceRepository.findById(practiceId).orElseThrow();
+        PracticeRecord record = practiceRepository.findByIdWithDetails(practiceId).orElseThrow();
 
-        // 1. 정량 지표 데이터(AnalysisResult) 저장/업데이트
+        // 1. 정량 지표 데이터 저장/업데이트 (기존과 동일)
         AnalysisResult analysisResult = analysisResultRepository.findByPracticeRecord(record)
                 .orElse(AnalysisResult.builder().practiceRecord(record).build());
 
@@ -64,26 +66,15 @@ public class AiAnalysisService {
         );
         analysisResultRepository.save(analysisResult);
 
-        // 2. AI 상세 피드백(AiAnalysisResult) 저장
-        // 매번 새로 생성하여 AI 분석의 최신성을 보장 (MapsId 구조이므로 recordId 명시)
-        AiAnalysisResult aiResult = AiAnalysisResult.builder()
-                .recordId(record.getId())
-                .practiceRecord(record)
-                .aiSummary(data.getAiSummary())
-                .wpmSummary(data.getWpmSummary())
-                .wpmFeedback(data.getWpmFeedback())
-                .energySummary(data.getEnergySummary())
-                .energyFeedback(data.getEnergyFeedback())
-                .pauseFeedback(data.getPauseFeedback())
-                .symbolFeedback(data.getSymbolFeedback())
-                .goalSimilarityScore(data.getGoalSimilarityScore())
-                .goalSummary(data.getGoalSummary())
-                .goalFeedback(data.getGoalFeedback())
-                .build();
-        
+        // 2. AI 상세 피드백(AiAnalysisResult) 저장/업데이트
+        // findByPracticeRecord로 조회 시도
+        AiAnalysisResult aiResult = aiAnalysisResultRepository.findByPracticeRecord(record)
+                .orElse(AiAnalysisResult.builder().practiceRecord(record).build()); // recordId() 설정하지 않음!
+
+        aiResult.updateAiData(data);
         aiAnalysisResultRepository.save(aiResult);
 
-        // 3. 연습 기록 상태를 ANALYZED로 최종 변경
+        // 3. 상태 변경
         record.updateStatus(Status.ANALYZED);
         practiceRepository.save(record);
     }

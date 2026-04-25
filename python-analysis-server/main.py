@@ -19,7 +19,7 @@ if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         # 최신 모델명으로 업데이트 (필요시 flash 등 하위 모델 사용 가능)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         print("[Python] Gemini AI 엔진 준비 완료")
     except Exception as e:
         print(f"[Python] Gemini 설정 실패: {e}")

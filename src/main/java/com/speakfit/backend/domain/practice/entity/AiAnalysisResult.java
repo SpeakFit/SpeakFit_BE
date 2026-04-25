@@ -1,5 +1,6 @@
 package com.speakfit.backend.domain.practice.entity;
 
+import com.speakfit.backend.domain.practice.dto.res.PythonAnalysisRes;
 import com.speakfit.backend.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
@@ -50,4 +51,17 @@ public class AiAnalysisResult extends BaseEntity {
     @Column(name = "goal_feedback", columnDefinition = "TEXT")
     private String goalFeedback;
 
+    // 클래스 내부에 데이터 업데이트 메서드 추가
+    public void updateAiData(PythonAnalysisRes data) {
+        this.aiSummary = data.getAiSummary();
+        this.wpmSummary = data.getWpmSummary();
+        this.wpmFeedback = data.getWpmFeedback();
+        this.energySummary = data.getEnergySummary();
+        this.energyFeedback = data.getEnergyFeedback();
+        this.pauseFeedback = data.getPauseFeedback();
+        this.symbolFeedback = data.getSymbolFeedback();
+        this.goalSimilarityScore = data.getGoalSimilarityScore();
+        this.goalSummary = data.getGoalSummary();
+        this.goalFeedback = data.getGoalFeedback();
+    }
 }
