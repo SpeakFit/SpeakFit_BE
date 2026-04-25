@@ -7,18 +7,14 @@ import com.speakfit.backend.domain.auth.dto.res.SignUpRes;
 import com.speakfit.backend.domain.auth.entity.RefreshToken;
 import com.speakfit.backend.domain.auth.exception.AuthErrorCode;
 import com.speakfit.backend.domain.auth.repository.RefreshTokenRepository;
-import com.speakfit.backend.domain.style.entity.SpeechStyle;
-import com.speakfit.backend.domain.style.repository.SpeechStyleRepository;
 import com.speakfit.backend.domain.term.entity.Term;
 import com.speakfit.backend.domain.term.entity.mapping.UserTerm;
-import com.speakfit.backend.domain.term.enums.TermType;
 import com.speakfit.backend.domain.term.repository.TermRepository;
 import com.speakfit.backend.domain.term.repository.UserTermRepository;
 import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.domain.user.repository.UserRepository;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import com.speakfit.backend.global.infra.jwt.JwtProvider;
-import com.speakfit.backend.global.util.CookieUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -27,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -38,33 +33,25 @@ import java.util.stream.Collectors;
 public class AuthServiceImpl implements AuthService {
 
     private final UserRepository userRepository;
-    private final SpeechStyleRepository speechStyleRepository;
     private final TermRepository termRepository;
     private final UserTermRepository userTermRepository;
     private final RefreshTokenRepository refreshTokenRepository;
 
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
-    private final CookieUtil cookieUtil;
 
     /** 회원가입 **/
     @Override
     public SignUpRes signUp(SignUpReq.Request req) {
 
-        // 1️⃣ 스타일 조회
-        SpeechStyle style = speechStyleRepository.findById(req.getStyleId())
-                .orElseThrow(() -> new CustomException(AuthErrorCode.STYLE_NOT_FOUND));
-
-        // 2️⃣ User 생성
+        // 1. User 생성
         User user = User.builder()
-                .usersId(req.getUsersId())
+                .email(req.getEmail())
                 .password(passwordEncoder.encode(req.getPassword()))
-                .name(req.getName())
-                .phoneNum(req.getPhoneNum())
                 .nickname(req.getNickname())
-                .birth(LocalDate.parse(req.getBirth()))
+                .birthday(req.getBirthday())
                 .gender(req.getGender())
-                .style(style)
+                .dialect(req.getDialect())
                 .build();
 
         User savedUser;
@@ -73,24 +60,21 @@ public class AuthServiceImpl implements AuthService {
         } catch (DataIntegrityViolationException e) {
             String msg = e.getMostSpecificCause().getMessage();
 
-            if (msg.contains("uk_user_users_id")) {
-                throw new CustomException(AuthErrorCode.DUPLICATE_USERS_ID);
+            if (msg.contains("uk_user_email")) {
+                throw new CustomException(AuthErrorCode.DUPLICATE_EMAIL);
             }
             if (msg.contains("uk_user_nickname")) {
                 throw new CustomException(AuthErrorCode.DUPLICATE_NICKNAME);
-            }
-            if (msg.contains("uk_user_phone")) {
-                throw new CustomException(AuthErrorCode.DUPLICATE_PHONE);
             }
 
             throw e; // 예상 못 한 DB 에러는 그대로
         }
 
-        // 3️⃣ 약관 동의 처리
-        Map<TermType, Boolean> agreedMap =
+        // 2. 약관 동의 처리
+        Map<Long, Boolean> agreedMap =
                 req.getTerms().stream()
                         .collect(Collectors.toMap(
-                                SignUpReq.TermAgreement::getTermType,
+                                SignUpReq.TermAgreement::getTermId,
                                 SignUpReq.TermAgreement::getAgreed,
                                 (a, b) -> b
                         ));
@@ -99,7 +83,7 @@ public class AuthServiceImpl implements AuthService {
 
         for (Term term : allTerms) {
             if (term.isRequired()) {
-                Boolean agreed = agreedMap.get(term.getTermType());
+                Boolean agreed = agreedMap.get(term.getId());
                 if (agreed == null || !agreed) {
                     throw new CustomException(AuthErrorCode.REQUIRED_TERM_NOT_AGREED);
                 }
@@ -110,17 +94,17 @@ public class AuthServiceImpl implements AuthService {
                 .map(term -> UserTerm.builder()
                         .user(savedUser)
                         .term(term)
-                        .agreed(Boolean.TRUE.equals(agreedMap.get(term.getTermType())))
+                        .agreed(Boolean.TRUE.equals(agreedMap.get(term.getId())))
                         .build()
                 )
                 .toList();
 
         userTermRepository.saveAll(userTerms);
 
-        // 4️⃣ 응답
+        // 3. 응답
         return SignUpRes.builder()
                 .userId(savedUser.getId())
-                .usersId(savedUser.getUsersId())
+                .email(savedUser.getEmail())
                 .nickname(savedUser.getNickname())
                 .build();
     }
@@ -128,7 +112,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public LoginRes login(LoginReq.Request req){
 
-        User user = userRepository.findByUsersId(req.getUserId())
+        User user = userRepository.findByEmail(req.getEmail())
                 .orElseThrow(() -> new CustomException(AuthErrorCode.LOGIN_FAILED));
 
         if(!passwordEncoder.matches(req.getPassword(), user.getPassword())){
@@ -136,7 +120,7 @@ public class AuthServiceImpl implements AuthService {
         }
 
         // 토큰 생성
-        String accessToken = jwtProvider.createAccessToken(user.getId(), user.getUsersId());
+        String accessToken = jwtProvider.createAccessToken(user.getId(), user.getEmail());
         String refreshToken = jwtProvider.createRefreshToken(user.getId());
         Instant refreshExpiresAt = jwtProvider.getRefreshTokenExpiresAt();
 

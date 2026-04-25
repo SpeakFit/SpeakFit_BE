@@ -1,7 +1,7 @@
 package com.speakfit.backend.domain.auth.dto.req;
 
 
-import com.speakfit.backend.domain.term.enums.TermType;
+import com.speakfit.backend.domain.user.enums.Dialect;
 import com.speakfit.backend.domain.user.enums.Gender;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
@@ -19,20 +19,12 @@ public class SignUpReq {
     public static class Request {
 
         @NotBlank
-        @Pattern(regexp = "^[a-zA-Z가-힣]{2,10}$")
-        private String name;
+        @Email
+        private String email;
 
         @NotBlank
         @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$")
-        private String birth;
-
-        @NotBlank
-        @Pattern(regexp = "^\\d{11}$")
-        private String phoneNum;
-
-        @NotBlank
-        @Pattern(regexp = "^[a-zA-Z0-9@._-]{6,18}$")
-        private String usersId;
+        private String birthday;
 
         @NotBlank
         @Pattern(
@@ -48,7 +40,7 @@ public class SignUpReq {
         private Gender gender;
 
         @NotNull
-        private Long styleId;
+        private Dialect dialect;
 
         // 약관 동의 리스트
         @Valid
@@ -62,7 +54,7 @@ public class SignUpReq {
     public static class TermAgreement {
 
         @NotNull
-        private TermType termType;
+        private Long termId;
 
         @NotNull
         private Boolean agreed;

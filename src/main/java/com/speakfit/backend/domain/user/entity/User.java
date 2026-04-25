@@ -1,14 +1,11 @@
 package com.speakfit.backend.domain.user.entity;
 
-import com.speakfit.backend.domain.style.entity.SpeechStyle;
 import com.speakfit.backend.domain.user.enums.Dialect;
 import com.speakfit.backend.domain.user.enums.Gender;
 import com.speakfit.backend.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
-
-import java.time.LocalDate;
 
 @Entity
 @Getter
@@ -17,8 +14,7 @@ import java.time.LocalDate;
 @Builder
 @Table(name = "users",
         uniqueConstraints = {
-                @UniqueConstraint(name = "uk_user_users_id", columnNames = "users_id"),
-                @UniqueConstraint(name = "uk_user_phone", columnNames = "phone_num"),
+                @UniqueConstraint(name = "uk_user_email", columnNames = "email"),
                 @UniqueConstraint(name = "uk_user_nickname", columnNames = "nickname")
         }
 )
@@ -27,27 +23,17 @@ public class User extends BaseEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "style_id", nullable = false)
-    private SpeechStyle style;
-
-    @Column(name = "users_id", nullable = false, length = 50)
-    private String usersId;
+    @Column(nullable = false, length = 255)
+    private String email;
 
     @Column(nullable = false, length = 255)
     private String password;
 
-    @Column(nullable = false, length = 10)
-    private String name;
-
-    @Column(name = "phone_num", nullable = false, length = 11)
-    private String phoneNum;
-
     @Column(nullable = false, length = 20)
     private String nickname;
 
-    @Column(nullable = false)
-    private LocalDate birth;
+    @Column(nullable = false, length = 255)
+    private String birthday;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -55,7 +41,7 @@ public class User extends BaseEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
-    @ColumnDefault("'SEOUL'")
+    @ColumnDefault("'STANDARD'")
     @Builder.Default
-    private Dialect dialect = Dialect.SEOUL;
+    private Dialect dialect = Dialect.STANDARD;
 }
