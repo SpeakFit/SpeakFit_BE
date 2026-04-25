@@ -11,6 +11,7 @@ import uvicorn
 import json
 import shutil
 import subprocess
+import tempfile
 
 # 환경 설정 로드
 load_dotenv(os.path.join(os.path.dirname(__file__), '../.env'))
@@ -31,6 +32,7 @@ else:
     model = None
 
 app = FastAPI()
+UPLOAD_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "uploads"))
 
 # --- 데이터 모델 정의 ---
 
@@ -342,6 +344,27 @@ def find_libreoffice():
 
     return None
 
+def to_file_uri(path):
+    normalized_path = os.path.abspath(path).replace("\\", "/")
+    if normalized_path.startswith("/"):
+        return "file://" + normalized_path
+    return "file:///" + normalized_path
+
+def ensure_within_upload_root(path, must_exist=False):
+    absolute_path = os.path.abspath(path)
+    try:
+        common_path = os.path.commonpath([UPLOAD_ROOT, absolute_path])
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Path is outside the allowed uploads directory")
+
+    if common_path != UPLOAD_ROOT:
+        raise HTTPException(status_code=400, detail="Path is outside the allowed uploads directory")
+
+    if must_exist and not os.path.exists(absolute_path):
+        raise HTTPException(status_code=404, detail="Requested file not found")
+
+    return absolute_path
+
 def convert_ppt_to_pdf(ppt_path, output_dir):
     """LibreOffice를 사용해 PPT/PPTX 파일을 PDF로 변환합니다."""
     libreoffice_path = find_libreoffice()
@@ -349,18 +372,32 @@ def convert_ppt_to_pdf(ppt_path, output_dir):
         raise HTTPException(status_code=503, detail="LibreOffice is not installed or configured")
 
     os.makedirs(output_dir, exist_ok=True)
+    profile_dir = tempfile.mkdtemp(prefix="libreoffice-profile-")
     command = [
         libreoffice_path,
+        f"-env:UserInstallation={to_file_uri(profile_dir)}",
         "--headless",
+        "--nologo",
+        "--norestore",
         "--convert-to",
         "pdf",
         "--outdir",
         output_dir,
         ppt_path,
     ]
-    result = subprocess.run(command, capture_output=True, text=True, timeout=120)
-    if result.returncode != 0:
-        print(f"[Python] LibreOffice conversion failed: {result.stderr}")
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        stdout, stderr = process.communicate(timeout=120)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        stdout, stderr = process.communicate()
+        print(f"[Python] LibreOffice conversion timed out: {stdout} {stderr}")
+        raise HTTPException(status_code=504, detail="PPT to PDF conversion timed out")
+    finally:
+        shutil.rmtree(profile_dir, ignore_errors=True)
+
+    if process.returncode != 0:
+        print(f"[Python] LibreOffice conversion failed: {stderr}")
         raise HTTPException(status_code=500, detail="PPT to PDF conversion failed")
 
     base_name = os.path.splitext(os.path.basename(ppt_path))[0]
@@ -401,16 +438,14 @@ def render_pdf_to_images(pdf_path, output_dir):
 async def convert_ppt(req: ConvertPptRequest):
     print("[Python] PPT conversion request received")
 
-    ppt_path = os.path.abspath(req.pptPath)
-    output_dir = os.path.abspath(req.outputDir)
-
-    if not os.path.exists(ppt_path):
-        raise HTTPException(status_code=404, detail="PPT file not found")
+    ppt_path = ensure_within_upload_root(req.pptPath, must_exist=True)
+    output_dir = ensure_within_upload_root(req.outputDir, must_exist=False)
 
     extension = os.path.splitext(ppt_path)[1].lower()
     if extension not in [".ppt", ".pptx"]:
         raise HTTPException(status_code=400, detail="Only PPT or PPTX files are supported")
 
+    pdf_path = None
     try:
         pdf_path = convert_ppt_to_pdf(ppt_path, output_dir)
         slides = render_pdf_to_images(pdf_path, output_dir)
@@ -425,6 +460,12 @@ async def convert_ppt(req: ConvertPptRequest):
     except Exception as e:
         print(f"[Python] PPT conversion failed: {e}")
         raise HTTPException(status_code=500, detail="PPT conversion failed") from e
+    finally:
+        if pdf_path and os.path.exists(pdf_path):
+            try:
+                os.remove(pdf_path)
+            except Exception as cleanup_error:
+                print(f"[Python] PDF cleanup failed: {cleanup_error}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=5000)

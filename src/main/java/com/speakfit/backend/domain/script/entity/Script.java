@@ -16,6 +16,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
@@ -96,14 +98,20 @@ public class Script extends BaseEntity {
     }
 
     public void markPptProcessing() {
-        this.scriptType = ScriptType.PPT;
         this.pptStatus = PptStatus.PROCESSING;
         this.pptErrorMessage = null;
     }
 
     public void markPptFailed(String errorMessage) {
-        this.scriptType = ScriptType.PPT;
         this.pptStatus = PptStatus.FAILED;
         this.pptErrorMessage = errorMessage;
+    }
+
+    @PrePersist
+    @PostLoad
+    private void normalizePptStatus() {
+        if (this.pptStatus == null) {
+            this.pptStatus = this.pptUrl != null ? PptStatus.COMPLETED : PptStatus.NONE;
+        }
     }
 }

@@ -35,7 +35,7 @@ public enum ErrorCode implements BaseCode {
 
     PAYLOAD_TOO_LARGE(
             "COMMON413",
-            "Upload file size exceeds the allowed limit.",
+            "업로드 가능한 파일 크기를 초과했습니다.",
             HttpStatus.PAYLOAD_TOO_LARGE
     ),
 
