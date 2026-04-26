@@ -1,6 +1,9 @@
 import os
 import time
 import asyncio
+import queue
+import re
+import threading
 import numpy as np
 import librosa
 import google.generativeai as genai
@@ -34,6 +37,11 @@ else:
 
 app = FastAPI()
 UPLOAD_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "uploads"))
+GOOGLE_STT_ENABLED = os.getenv("GOOGLE_STT_ENABLED", "false").lower() == "true"
+GOOGLE_STT_LANGUAGE_CODE = os.getenv("GOOGLE_STT_LANGUAGE_CODE", "ko-KR")
+GOOGLE_STT_ENCODING = os.getenv("GOOGLE_STT_ENCODING", "WEBM_OPUS")
+GOOGLE_STT_SAMPLE_RATE = int(os.getenv("GOOGLE_STT_SAMPLE_RATE", "48000"))
+GOOGLE_STT_INTERIM_RESULTS = os.getenv("GOOGLE_STT_INTERIM_RESULTS", "true").lower() == "true"
 
 # --- 데이터 모델 정의 ---
 
@@ -90,6 +98,13 @@ class ConvertPptRequest(BaseModel):
 def clamp(value, min_value, max_value):
     """값을 지정한 범위 안으로 제한합니다."""
     return max(min_value, min(value, max_value))
+
+def normalize_match_text(text):
+    """단어 매칭용 텍스트를 정규화합니다."""
+    if not text:
+        return ""
+
+    return re.sub(r"[^0-9a-zA-Z가-힣]+", "", text).lower()
 
 def analyze_voice_features(file_path):
     """오디오 파일에서 정량적 특징 추출 (Librosa 사용)"""
@@ -344,6 +359,159 @@ def build_highlight_message(practice_id, script_words, cursor):
         "isFinal": safe_cursor == len(script_words) - 1
     }
 
+def estimate_word_index_from_transcript(transcript, script_words, fallback_cursor):
+    """STT transcript를 대본 단어 인덱스로 변환합니다."""
+    if not transcript or not script_words:
+        return None
+
+    transcript_tokens = [
+        normalize_match_text(token)
+        for token in transcript.split()
+    ]
+    transcript_tokens = [token for token in transcript_tokens if token]
+    if not transcript_tokens:
+        return None
+
+    search_start = max(fallback_cursor - len(transcript_tokens) - 5, 0)
+    best_score = 0
+    best_index = None
+
+    for start_index in range(search_start, len(script_words)):
+        score = 0
+        last_index = None
+        cursor = start_index
+        for token in transcript_tokens:
+            while cursor < len(script_words):
+                word = script_words[cursor]
+                normalized_word = word.normalizedText or normalize_match_text(word.text)
+                cursor += 1
+                if normalized_word == token or token in normalized_word or normalized_word in token:
+                    score += 1
+                    last_index = word.globalWordIndex
+                    break
+
+        if score > best_score:
+            best_score = score
+            best_index = last_index
+
+    return best_index
+
+def get_google_audio_encoding(speech):
+    """Google STT 오디오 인코딩을 환경변수에서 결정합니다."""
+    encoding_map = {
+        "LINEAR16": speech.RecognitionConfig.AudioEncoding.LINEAR16,
+        "FLAC": speech.RecognitionConfig.AudioEncoding.FLAC,
+        "MULAW": speech.RecognitionConfig.AudioEncoding.MULAW,
+        "AMR": speech.RecognitionConfig.AudioEncoding.AMR,
+        "AMR_WB": speech.RecognitionConfig.AudioEncoding.AMR_WB,
+        "OGG_OPUS": speech.RecognitionConfig.AudioEncoding.OGG_OPUS,
+        "WEBM_OPUS": speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+        "ENCODING_UNSPECIFIED": speech.RecognitionConfig.AudioEncoding.ENCODING_UNSPECIFIED
+    }
+    return encoding_map.get(GOOGLE_STT_ENCODING.upper(), speech.RecognitionConfig.AudioEncoding.WEBM_OPUS)
+
+class GoogleStreamingSttSession:
+    """Google STT Streaming 세션을 관리합니다."""
+
+    def __init__(self, practice_id, script_words, websocket, loop):
+        self.practice_id = practice_id
+        self.script_words = script_words
+        self.websocket = websocket
+        self.loop = loop
+        self.audio_queue = queue.Queue()
+        self.closed = threading.Event()
+        self.thread = None
+        self.cursor = 0
+
+    def start(self):
+        """Google STT 스트리밍 스레드를 시작합니다."""
+        try:
+            from google.cloud import speech
+        except Exception as e:
+            print(f"[Python] Google STT 라이브러리 로드 실패: {e}")
+            return False
+
+        self.thread = threading.Thread(target=self._run, args=(speech,), daemon=True)
+        self.thread.start()
+        return True
+
+    def add_audio(self, audio_content):
+        """오디오 chunk를 STT 큐에 추가합니다."""
+        if audio_content:
+            self.audio_queue.put(audio_content)
+
+    def stop(self):
+        """Google STT 스트리밍 세션을 종료합니다."""
+        self.closed.set()
+        self.audio_queue.put(None)
+
+    def _requests(self, speech):
+        """Google STT streaming_recognize 요청 iterator를 생성합니다."""
+        recognition_config = speech.RecognitionConfig(
+            encoding=get_google_audio_encoding(speech),
+            sample_rate_hertz=GOOGLE_STT_SAMPLE_RATE,
+            language_code=GOOGLE_STT_LANGUAGE_CODE,
+            enable_automatic_punctuation=True
+        )
+        streaming_config = speech.StreamingRecognitionConfig(
+            config=recognition_config,
+            interim_results=GOOGLE_STT_INTERIM_RESULTS,
+            single_utterance=False
+        )
+        yield speech.StreamingRecognizeRequest(streaming_config=streaming_config)
+
+        while not self.closed.is_set():
+            audio_content = self.audio_queue.get()
+            if audio_content is None:
+                break
+
+            yield speech.StreamingRecognizeRequest(audio_content=audio_content)
+
+    def _run(self, speech):
+        """Google STT 응답을 하이라이팅 메시지로 변환합니다."""
+        try:
+            client = speech.SpeechClient()
+            responses = client.streaming_recognize(requests=self._requests(speech))
+            for response in responses:
+                if self.closed.is_set():
+                    break
+
+                for result in response.results:
+                    if not result.alternatives:
+                        continue
+
+                    alternative = result.alternatives[0]
+                    current_word_index = estimate_word_index_from_transcript(
+                        alternative.transcript,
+                        self.script_words,
+                        self.cursor
+                    )
+                    if current_word_index is None:
+                        continue
+
+                    self.cursor = max(self.cursor, current_word_index)
+                    confidence = alternative.confidence if result.is_final else result.stability
+                    if confidence is None:
+                        confidence = 0.0
+
+                    message = {
+                        "type": "highlight",
+                        "practiceId": self.practice_id,
+                        "currentWordIndex": current_word_index,
+                        "confidence": round(float(confidence), 2),
+                        "isFinal": result.is_final,
+                        "transcript": alternative.transcript
+                    }
+                    asyncio.run_coroutine_threadsafe(self.websocket.send_json(message), self.loop)
+        except Exception as e:
+            print(f"[Python] Google STT 스트리밍 오류: {e}")
+            error_message = {
+                "type": "error",
+                "practiceId": self.practice_id,
+                "message": "Google STT streaming failed."
+            }
+            asyncio.run_coroutine_threadsafe(self.websocket.send_json(error_message), self.loop)
+
 def generate_ai_feedback(features, req: AnalyzeRequest):
     """Gemini를 사용한 심층 피드백 생성 (상황 컨텍스트 활용)"""
     if not model:
@@ -401,6 +569,8 @@ async def practice_realtime_highlight(websocket: WebSocket, practice_id: int):
     await websocket.accept()
     script_words = []
     cursor = 0
+    stt_session = None
+    loop = asyncio.get_running_loop()
     print(f"[ID: {practice_id}] 실시간 하이라이팅 연결")
 
     try:
@@ -419,14 +589,21 @@ async def practice_realtime_highlight(websocket: WebSocket, practice_id: int):
                 if message_type == "init":
                     script_words = parse_realtime_script_words(payload.get("scriptWords", []))
                     cursor = 0
+                    if GOOGLE_STT_ENABLED:
+                        stt_session = GoogleStreamingSttSession(practice_id, script_words, websocket, loop)
+                        if not stt_session.start():
+                            stt_session = None
                     await websocket.send_json({
                         "type": "ready",
                         "practiceId": practice_id,
-                        "wordCount": len(script_words)
+                        "wordCount": len(script_words),
+                        "sttProvider": "google" if stt_session else "mock"
                     })
                     continue
 
                 if message_type == "stop":
+                    if stt_session:
+                        stt_session.stop()
                     await websocket.send_json({
                         "type": "completed",
                         "practiceId": practice_id,
@@ -435,6 +612,10 @@ async def practice_realtime_highlight(websocket: WebSocket, practice_id: int):
                     await websocket.close()
                     break
 
+            if message.get("bytes") is not None and stt_session:
+                stt_session.add_audio(message["bytes"])
+                continue
+
             highlight_message = build_highlight_message(practice_id, script_words, cursor)
             await websocket.send_json(highlight_message)
             if script_words and cursor < len(script_words) - 1:
@@ -442,6 +623,9 @@ async def practice_realtime_highlight(websocket: WebSocket, practice_id: int):
             await asyncio.sleep(0.02)
     except WebSocketDisconnect:
         print(f"[ID: {practice_id}] 실시간 하이라이팅 연결 종료")
+    finally:
+        if stt_session:
+            stt_session.stop()
 
 @app.post("/analyze")
 async def run_analysis(req: AnalyzeRequest):

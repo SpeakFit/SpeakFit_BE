@@ -5,5 +5,6 @@ librosa
 numpy
 scipy
 google-generativeai
+google-cloud-speech
 python-dotenv
 PyMuPDF
