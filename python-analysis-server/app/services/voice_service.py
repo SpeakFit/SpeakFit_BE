@@ -7,6 +7,11 @@ MIN_STT_CONFIDENCE = 0.1
 MATCH_THRESHOLD = 0.72
 SHORT_WORD_MATCH_THRESHOLD = 0.9
 ALIGNMENT_LOOKAHEAD = 8
+TARGET_WPM = 130
+FAST_WPM_THRESHOLD = 170
+SLOW_WPM_THRESHOLD = 80
+LONG_PAUSE_GAP_MS = 700
+MIN_WORD_DURATION_MS = 300
 
 def analyze_voice_features(file_path):
     """오디오 파일에서 정량적 특징 추출 (Librosa 사용)"""
@@ -195,14 +200,14 @@ def group_words_by_sentence(script_words):
         sentence["words"].append(word)
     return [sentence_map[key] for key in sorted(sentence_map.keys())]
 
-def resolve_sentence_status(wpm, avg_confidence, skipped_word_count):
-    if skipped_word_count > 0 or avg_confidence < 0.7:
+def resolve_sentence_status(wpm, avg_confidence, skipped_word_count, mismatch_word_count):
+    if skipped_word_count > 0 or mismatch_word_count > 0 or avg_confidence < 0.7:
         return "MISMATCH"
     if wpm is None:
         return "MISMATCH"
-    if wpm > 170:
+    if wpm > FAST_WPM_THRESHOLD:
         return "FAST"
-    if wpm < 80:
+    if wpm < SLOW_WPM_THRESHOLD:
         return "SLOW"
     return "NORMAL"
 
@@ -218,17 +223,21 @@ def build_sentence_results(script_words, word_results, features):
         related_results = [word_result_map[w.globalWordIndex] for w in words if w.globalWordIndex in word_result_map]
         if not related_results: continue
 
-        timed_results = [r for r in related_results if r.get("startMs") is not None and r.get("endMs") is not None]
-        start_ms = min((r["startMs"] for r in timed_results), default=None)
-        end_ms = max((r["endMs"] for r in timed_results), default=None)
-        duration_min = max((end_ms - start_ms) / 60000, 0.001) if start_ms is not None and end_ms is not None else None
-        wpm = len(words) / duration_min if duration_min else None
-        avg_confidence = sum(r["confidence"] for r in related_results) / len(related_results)
+        timed_results = get_timed_word_results(related_results)
+        start_ms, end_ms = resolve_sentence_time_range(timed_results)
+        wpm = calculate_sentence_wpm(len(words), start_ms, end_ms)
+        pause_duration_ms = calculate_sentence_pause_duration(timed_results)
+        avg_confidence = calculate_average_confidence(related_results)
         skipped_word_count = sum(1 for r in related_results if r["skipped"])
         mismatch_word_count = sum(1 for r in related_results if r.get("status") == "MISMATCH" and not r["skipped"])
-        speed_penalty = abs(wpm - 130) * 0.08 if wpm is not None else 10
-        score = clamp(avg_confidence * 100 - speed_penalty - skipped_word_count * 8 - mismatch_word_count * 5, 0, 100)
-        pause_duration_ms = int(features.get("pauseRatio", 0.0) * (end_ms - start_ms)) if start_ms is not None and end_ms is not None else None
+        score = calculate_sentence_score(
+            word_count=len(words),
+            avg_confidence=avg_confidence,
+            skipped_word_count=skipped_word_count,
+            mismatch_word_count=mismatch_word_count,
+            wpm=wpm,
+            pause_duration_ms=pause_duration_ms,
+        )
 
         sentence_results.append({
             "scriptSentenceId": sentence["scriptSentenceId"],
@@ -243,9 +252,68 @@ def build_sentence_results(script_words, word_results, features):
             "avgPitch": features.get("avgPitch", 0.0),
             "avgIntensity": features.get("avgIntensity", 0.0),
             "score": round(float(score), 2),
-            "status": resolve_sentence_status(wpm, avg_confidence, skipped_word_count)
+            "status": resolve_sentence_status(wpm, avg_confidence, skipped_word_count, mismatch_word_count)
         })
     return sentence_results
+
+def get_timed_word_results(word_results):
+    return sorted(
+        [r for r in word_results if r.get("startMs") is not None and r.get("endMs") is not None],
+        key=lambda r: r["startMs"]
+    )
+
+def resolve_sentence_time_range(timed_results):
+    if not timed_results:
+        return None, None
+
+    return timed_results[0]["startMs"], max(r["endMs"] for r in timed_results)
+
+def calculate_sentence_wpm(word_count, start_ms, end_ms):
+    if start_ms is None or end_ms is None or end_ms <= start_ms:
+        return None
+
+    min_duration_ms = max(word_count, 1) * MIN_WORD_DURATION_MS
+    duration_ms = max(end_ms - start_ms, min_duration_ms)
+    duration_min = duration_ms / 60000
+    return word_count / duration_min
+
+def calculate_sentence_pause_duration(timed_results):
+    if len(timed_results) < 2:
+        return 0 if timed_results else None
+
+    pause_duration_ms = 0
+    previous_end_ms = timed_results[0]["endMs"]
+    for result in timed_results[1:]:
+        gap_ms = result["startMs"] - previous_end_ms
+        if gap_ms > LONG_PAUSE_GAP_MS:
+            pause_duration_ms += gap_ms
+        previous_end_ms = max(previous_end_ms, result["endMs"])
+
+    return pause_duration_ms
+
+def calculate_average_confidence(word_results):
+    if not word_results:
+        return 0.0
+
+    return sum(float(r.get("confidence") or 0.0) for r in word_results) / len(word_results)
+
+def calculate_sentence_score(word_count, avg_confidence, skipped_word_count, mismatch_word_count, wpm, pause_duration_ms):
+    if word_count <= 0:
+        return 0.0
+
+    skipped_ratio = skipped_word_count / word_count
+    mismatch_ratio = mismatch_word_count / word_count
+    speed_penalty = min(abs(wpm - TARGET_WPM) * 0.08, 18) if wpm is not None else 18
+    pause_penalty = min((pause_duration_ms or 0) / 1000 * 4, 12)
+
+    score = (
+        avg_confidence * 100
+        - skipped_ratio * 45
+        - mismatch_ratio * 25
+        - speed_penalty
+        - pause_penalty
+    )
+    return clamp(score, 0, 100)
 
 def build_issue_results(sentence_results):
     issues = []
@@ -272,9 +340,9 @@ def build_issue_results(sentence_results):
         itype = "LOW_CONFIDENCE"
         wpm = s.get("wpm")
         if s.get("skippedWordCount", 0) > 0: itype = "SKIPPED_WORDS"
-        elif wpm is not None and wpm > 170: itype = "TOO_FAST"
-        elif wpm is not None and wpm < 80: itype = "TOO_SLOW"
-        elif (s.get("pauseDurationMs") or 0) > 1200: itype = "LONG_PAUSE"
+        elif wpm is not None and wpm > FAST_WPM_THRESHOLD: itype = "TOO_FAST"
+        elif wpm is not None and wpm < SLOW_WPM_THRESHOLD: itype = "TOO_SLOW"
+        elif (s.get("pauseDurationMs") or 0) > LONG_PAUSE_GAP_MS: itype = "LONG_PAUSE"
         elif s.get("score", 100.0) < 70: itype = "LOW_SCORE"
 
         issues.append({
