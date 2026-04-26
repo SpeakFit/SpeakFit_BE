@@ -1,9 +1,10 @@
 import os
 import time
+import asyncio
 import numpy as np
 import librosa
 import google.generativeai as genai
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from dotenv import load_dotenv
@@ -309,6 +310,40 @@ def build_issue_reason(sentence, issue_type):
         f"누락단어={sentence.get('skippedWordCount')}"
     )
 
+def parse_realtime_script_words(raw_words):
+    """실시간 하이라이팅용 대본 단어 목록을 파싱합니다."""
+    script_words = []
+    for raw_word in raw_words or []:
+        try:
+            script_words.append(ScriptWordPayload(**raw_word))
+        except Exception as e:
+            print(f"[Python] 실시간 단어 파싱 실패: {e}")
+
+    return sorted(script_words, key=lambda word: word.globalWordIndex)
+
+def build_highlight_message(practice_id, script_words, cursor):
+    """실시간 하이라이팅 메시지를 생성합니다."""
+    if not script_words:
+        return {
+            "type": "highlight",
+            "practiceId": practice_id,
+            "currentWordIndex": None,
+            "confidence": 0.0,
+            "isFinal": False
+        }
+
+    safe_cursor = min(cursor, len(script_words) - 1)
+    word = script_words[safe_cursor]
+    confidence = round(clamp(0.9 - (safe_cursor % 5) * 0.04, 0.7, 0.95), 2)
+
+    return {
+        "type": "highlight",
+        "practiceId": practice_id,
+        "currentWordIndex": word.globalWordIndex,
+        "confidence": confidence,
+        "isFinal": safe_cursor == len(script_words) - 1
+    }
+
 def generate_ai_feedback(features, req: AnalyzeRequest):
     """Gemini를 사용한 심층 피드백 생성 (상황 컨텍스트 활용)"""
     if not model:
@@ -359,6 +394,54 @@ def generate_ai_feedback(features, req: AnalyzeRequest):
         }
 
 # --- 엔드포인트 구현 ---
+
+@app.websocket("/ws/practice/{practice_id}")
+async def practice_realtime_highlight(websocket: WebSocket, practice_id: int):
+    """실시간 대본 하이라이팅 WebSocket 엔드포인트입니다."""
+    await websocket.accept()
+    script_words = []
+    cursor = 0
+    print(f"[ID: {practice_id}] 실시간 하이라이팅 연결")
+
+    try:
+        while True:
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+
+            if message.get("text") is not None:
+                try:
+                    payload = json.loads(message["text"])
+                except json.JSONDecodeError:
+                    payload = {"type": "audio"}
+
+                message_type = payload.get("type", "audio")
+                if message_type == "init":
+                    script_words = parse_realtime_script_words(payload.get("scriptWords", []))
+                    cursor = 0
+                    await websocket.send_json({
+                        "type": "ready",
+                        "practiceId": practice_id,
+                        "wordCount": len(script_words)
+                    })
+                    continue
+
+                if message_type == "stop":
+                    await websocket.send_json({
+                        "type": "completed",
+                        "practiceId": practice_id,
+                        "lastWordIndex": script_words[-1].globalWordIndex if script_words else None
+                    })
+                    await websocket.close()
+                    break
+
+            highlight_message = build_highlight_message(practice_id, script_words, cursor)
+            await websocket.send_json(highlight_message)
+            if script_words and cursor < len(script_words) - 1:
+                cursor += 1
+            await asyncio.sleep(0.02)
+    except WebSocketDisconnect:
+        print(f"[ID: {practice_id}] 실시간 하이라이팅 연결 종료")
 
 @app.post("/analyze")
 async def run_analysis(req: AnalyzeRequest):

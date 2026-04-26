@@ -23,4 +23,4 @@ app:
   ai:
     base-url: ${AI_BASE_URL:http://localhost:5000}
   websocket:
-    base-url: ${WS_BASE_URL:ws://localhost:8080/ws/practice/}
+    base-url: ${WS_BASE_URL:ws://localhost:5000/ws/practice/}
