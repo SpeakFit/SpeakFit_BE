@@ -29,4 +29,7 @@ public interface PracticeRepository extends JpaRepository<PracticeRecord, Long> 
             "WHERE p.id = :id")
     Optional<PracticeRecord> findByIdWithDetails(@Param("id") Long id);
 
+    // 특정 대본에 속한 모든 연습 기록 삭제
+    void deleteAllByScriptId(Long scriptId);
+
 }
