@@ -2,6 +2,7 @@ package com.speakfit.backend.domain.practice.dto.res;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.speakfit.backend.domain.practice.enums.DetailStatus;
+import com.speakfit.backend.domain.practice.enums.PracticeIssueType;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -56,6 +57,8 @@ public class PythonAnalysisRes {
     private List<WordResult> wordResults;
     @JsonProperty("sentenceResults")
     private List<SentenceResult> sentenceResults;
+    @JsonProperty("issues")
+    private List<IssueResult> issues;
 
     @Getter
     @NoArgsConstructor
@@ -114,5 +117,34 @@ public class PythonAnalysisRes {
         private Double score;
         @JsonProperty("status")
         private DetailStatus status;
+    }
+
+    @Getter
+    @NoArgsConstructor
+    public static class IssueResult {
+        @JsonProperty("scriptSentenceId")
+        private Long scriptSentenceId;
+        @JsonProperty("sentenceIndex")
+        private Integer sentenceIndex;
+        @JsonProperty("startIndex")
+        private Integer startIndex;
+        @JsonProperty("endIndex")
+        private Integer endIndex;
+        @JsonProperty("issueType")
+        private PracticeIssueType issueType;
+        @JsonProperty("issueSummary")
+        private String issueSummary;
+        @JsonProperty("feedbackContent")
+        private String feedbackContent;
+        @JsonProperty("reason")
+        private String reason;
+        @JsonProperty("score")
+        private Double score;
+        @JsonProperty("displayOrder")
+        private Integer displayOrder;
+        @JsonProperty("wpm")
+        private Double wpm;
+        @JsonProperty("intensity")
+        private Double intensity;
     }
 }

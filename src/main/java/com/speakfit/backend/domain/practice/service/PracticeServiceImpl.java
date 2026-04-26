@@ -302,7 +302,7 @@ public class PracticeServiceImpl implements PracticeService {
         // 3. 모든 분석 관련 테이블 데이터 통합 조회
         AnalysisResult analysis = analysisResultRepository.findByPracticeRecord(record).orElseThrow();
         AiAnalysisResult aiResult = aiAnalysisResultRepository.findByPracticeRecord(record).orElseThrow();
-        List<PracticeIssue> issues = practiceIssueRepository.findAllByPracticeRecordId(record.getId());
+        List<PracticeIssue> issues = practiceIssueRepository.findAllByPracticeRecordIdOrderByDisplayOrderAscIdAsc(record.getId());
         List<PracticeDetail> details = practiceDetailRepository.findAllByPracticeRecordIdOrderByWordIndexAsc(record.getId());
 
         // 4. 실시간 분석 데이터를 문장 단위로 병합
@@ -339,10 +339,16 @@ public class PracticeServiceImpl implements PracticeService {
                         .createdAt(aiResult.getCreatedAt())
                         .build())
                 .practiceIssues(issues.stream().map(i -> GetPracticeReportRes.PracticeIssueRes.builder()
+                        .scriptSentenceId(i.getScriptSentence() != null ? i.getScriptSentence().getId() : null)
+                        .sentenceIndex(i.getSentenceIndex())
                         .startIndex(i.getStartIndex())
                         .endIndex(i.getEndIndex())
+                        .issueType(i.getIssueType())
                         .issueSummary(i.getIssueSummary())
                         .feedbackContent(i.getFeedbackContent())
+                        .reason(i.getReason())
+                        .score(i.getScore())
+                        .displayOrder(i.getDisplayOrder())
                         .wpm(i.getWpm())
                         .intensity(i.getIntensity())
                         .build()).collect(Collectors.toList()))

@@ -3,6 +3,7 @@ package com.speakfit.backend.domain.practice.service;
 import com.speakfit.backend.domain.practice.dto.res.PythonAnalysisRes;
 import com.speakfit.backend.domain.practice.entity.AiAnalysisResult;
 import com.speakfit.backend.domain.practice.entity.AnalysisResult;
+import com.speakfit.backend.domain.practice.entity.PracticeIssue;
 import com.speakfit.backend.domain.practice.entity.PracticeRecord;
 import com.speakfit.backend.domain.practice.entity.PracticeSentenceResult;
 import com.speakfit.backend.domain.practice.entity.PracticeWordResult;
@@ -11,6 +12,7 @@ import com.speakfit.backend.domain.practice.enums.Status;
 import com.speakfit.backend.domain.practice.exception.PracticeErrorCode;
 import com.speakfit.backend.domain.practice.repository.AiAnalysisResultRepository;
 import com.speakfit.backend.domain.practice.repository.AnalysisResultRepository;
+import com.speakfit.backend.domain.practice.repository.PracticeIssueRepository;
 import com.speakfit.backend.domain.practice.repository.PracticeRepository;
 import com.speakfit.backend.domain.practice.repository.PracticeSentenceResultRepository;
 import com.speakfit.backend.domain.practice.repository.PracticeWordResultRepository;
@@ -27,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -38,6 +41,7 @@ public class AiAnalysisTxServiceImpl implements AiAnalysisTxService {
     private final PracticeRepository practiceRepository;
     private final AnalysisResultRepository analysisResultRepository;
     private final AiAnalysisResultRepository aiAnalysisResultRepository;
+    private final PracticeIssueRepository practiceIssueRepository;
     private final PracticeWordResultRepository practiceWordResultRepository;
     private final PracticeSentenceResultRepository practiceSentenceResultRepository;
     private final ScriptWordRepository scriptWordRepository;
@@ -76,7 +80,10 @@ public class AiAnalysisTxServiceImpl implements AiAnalysisTxService {
         // 4. 문장 단위 분석 결과 저장
         saveSentenceResults(record, data.getSentenceResults());
 
-        // 5. 상태 변경
+        // 5. 문제 구간 결과 저장
+        saveIssues(record, data.getIssues());
+
+        // 6. 상태 변경
         record.updateStatus(Status.ANALYZED);
         practiceRepository.saveAndFlush(record);
     }
@@ -232,6 +239,83 @@ public class AiAnalysisTxServiceImpl implements AiAnalysisTxService {
         }
 
         return DetailStatus.NORMAL;
+    }
+
+    // 문제 구간 분석 결과 저장 구현
+    private void saveIssues(PracticeRecord record, List<PythonAnalysisRes.IssueResult> issues) {
+        if (issues == null || issues.isEmpty()) {
+            return;
+        }
+
+        practiceIssueRepository.deleteAllByPracticeRecordId(record.getId());
+
+        Map<Integer, ScriptSentence> sentenceIndexMap = scriptSentenceRepository
+                .findAllByScriptIdOrderBySentenceIndexAsc(record.getScript().getId())
+                .stream()
+                .collect(Collectors.toMap(ScriptSentence::getSentenceIndex, Function.identity()));
+        Map<Long, ScriptSentence> sentenceIdMap = sentenceIndexMap.values()
+                .stream()
+                .filter(sentence -> sentence.getId() != null)
+                .collect(Collectors.toMap(ScriptSentence::getId, Function.identity()));
+
+        AtomicInteger defaultDisplayOrder = new AtomicInteger(0);
+        List<PracticeIssue> results = issues.stream()
+                .limit(5)
+                .map(issue -> toPracticeIssue(record, issue, resolveScriptSentence(issue, sentenceIndexMap, sentenceIdMap), defaultDisplayOrder.getAndIncrement()))
+                .filter(Objects::nonNull)
+                .toList();
+
+        practiceIssueRepository.saveAll(results);
+    }
+
+    // 문제 구간 결과 엔티티 변환 구현
+    private PracticeIssue toPracticeIssue(PracticeRecord record,
+                                          PythonAnalysisRes.IssueResult issue,
+                                          ScriptSentence scriptSentence,
+                                          Integer defaultDisplayOrder) {
+        Integer sentenceIndex = issue.getSentenceIndex();
+        if (sentenceIndex == null && scriptSentence != null) {
+            sentenceIndex = scriptSentence.getSentenceIndex();
+        }
+
+        return PracticeIssue.builder()
+                .practiceRecord(record)
+                .scriptSentence(scriptSentence)
+                .issueType(issue.getIssueType())
+                .sentenceIndex(sentenceIndex)
+                .startIndex(issue.getStartIndex())
+                .endIndex(issue.getEndIndex())
+                .issueSummary(issue.getIssueSummary())
+                .feedbackContent(issue.getFeedbackContent())
+                .reason(issue.getReason())
+                .score(issue.getScore())
+                .displayOrder(resolveIssueDisplayOrder(issue, defaultDisplayOrder))
+                .wpm(issue.getWpm())
+                .intensity(issue.getIntensity())
+                .build();
+    }
+
+    // 문제 구간 문장 매칭 구현
+    private ScriptSentence resolveScriptSentence(PythonAnalysisRes.IssueResult issue,
+                                                 Map<Integer, ScriptSentence> sentenceIndexMap,
+                                                 Map<Long, ScriptSentence> sentenceIdMap) {
+        if (issue.getScriptSentenceId() != null) {
+            ScriptSentence sentence = sentenceIdMap.get(issue.getScriptSentenceId());
+            if (sentence != null) {
+                return sentence;
+            }
+        }
+
+        return sentenceIndexMap.get(issue.getSentenceIndex());
+    }
+
+    // 문제 구간 정렬 순서 결정 구현
+    private Integer resolveIssueDisplayOrder(PythonAnalysisRes.IssueResult issue, Integer defaultDisplayOrder) {
+        if (issue.getDisplayOrder() != null) {
+            return issue.getDisplayOrder();
+        }
+
+        return defaultDisplayOrder;
     }
 
     // 분석 실패 시 상태 처리 로직 구현

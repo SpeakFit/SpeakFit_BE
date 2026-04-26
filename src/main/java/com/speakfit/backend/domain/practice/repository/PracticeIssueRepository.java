@@ -9,4 +9,8 @@ import java.util.List;
 @Repository
 public interface PracticeIssueRepository extends JpaRepository<PracticeIssue, Long> {
     List<PracticeIssue> findAllByPracticeRecordId(Long recordId);
+
+    List<PracticeIssue> findAllByPracticeRecordIdOrderByDisplayOrderAscIdAsc(Long recordId);
+
+    void deleteAllByPracticeRecordId(Long recordId);
 }
