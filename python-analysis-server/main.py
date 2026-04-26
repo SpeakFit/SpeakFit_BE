@@ -4,8 +4,8 @@ import numpy as np
 import librosa
 import google.generativeai as genai
 from fastapi import FastAPI, HTTPException, Body
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Optional, List
 from dotenv import load_dotenv
 import uvicorn
 import json
@@ -36,10 +36,23 @@ UPLOAD_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "upl
 
 # --- 데이터 모델 정의 ---
 
+class ScriptWordPayload(BaseModel):
+    scriptWordId: int
+    scriptSentenceId: int
+    sentenceIndex: int
+    globalWordIndex: int
+    sentenceWordIndex: int
+    text: str
+    normalizedText: Optional[str] = None
+    startCharIndex: int
+    endCharIndex: int
+
 class AnalyzeRequest(BaseModel):
     practiceId: int
     audioUrl: str
+    content: Optional[str] = None
     markedContent: str
+    scriptWords: List[ScriptWordPayload] = Field(default_factory=list)
     audienceType: str
     audienceUnderstanding: str
     speechInformation: str

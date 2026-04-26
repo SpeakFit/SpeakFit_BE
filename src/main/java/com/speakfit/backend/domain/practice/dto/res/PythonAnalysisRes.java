@@ -1,8 +1,11 @@
 package com.speakfit.backend.domain.practice.dto.res;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.speakfit.backend.domain.practice.enums.DetailStatus;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+
+import java.util.List;
 
 @Getter
 @NoArgsConstructor
@@ -48,4 +51,37 @@ public class PythonAnalysisRes {
     private String goalSummary;
     @JsonProperty("goalFeedback")
     private String goalFeedback;
+
+    @JsonProperty("wordResults")
+    private List<WordResult> wordResults;
+
+    @Getter
+    @NoArgsConstructor
+    public static class WordResult {
+        @JsonProperty("wordIndex")
+        private Integer wordIndex;
+        @JsonProperty("globalWordIndex")
+        private Integer globalWordIndex;
+        @JsonProperty("sentenceWordIndex")
+        private Integer sentenceWordIndex;
+        @JsonProperty("startMs")
+        private Long startMs;
+        @JsonProperty("endMs")
+        private Long endMs;
+        @JsonProperty("confidence")
+        private Double confidence;
+        @JsonProperty("skipped")
+        private Boolean skipped;
+        @JsonProperty("status")
+        private DetailStatus status;
+
+        // Python 응답 단어 인덱스 해석 구현
+        public Integer getResolvedGlobalWordIndex() {
+            if (globalWordIndex != null) {
+                return globalWordIndex;
+            }
+
+            return wordIndex;
+        }
+    }
 }

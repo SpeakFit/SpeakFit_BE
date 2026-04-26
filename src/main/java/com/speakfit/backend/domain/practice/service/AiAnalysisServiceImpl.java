@@ -7,6 +7,8 @@ import com.speakfit.backend.domain.practice.repository.AiAnalysisResultRepositor
 import com.speakfit.backend.domain.practice.repository.AnalysisResultRepository;
 import com.speakfit.backend.domain.practice.repository.PracticeRepository;
 import com.speakfit.backend.domain.script.entity.Script;
+import com.speakfit.backend.domain.script.entity.ScriptWord;
+import com.speakfit.backend.domain.script.repository.ScriptWordRepository;
 import com.speakfit.backend.domain.style.entity.SpeechStyle;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -29,6 +32,7 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
     private final AiAnalysisTxService aiAnalysisTxService;
     private final AiAnalysisResultRepository aiAnalysisResultRepository;
     private final WebClient webClient;
+    private final ScriptWordRepository scriptWordRepository;
 
     // 비동기 분석 및 결과 저장 로직 구현 
     @Override
@@ -59,7 +63,9 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
         Map<String, Object> body = new HashMap<>();
         body.put("practiceId", record.getId());
         body.put("audioUrl", audioUrl);
+        body.put("content", record.getScript().getContent());
         body.put("markedContent", record.getScript().getMarkedContent()); // 낭독 기호 대본
+        body.put("scriptWords", getScriptWordsPayload(record.getScript()));
         body.put("audienceType", record.getAudienceType().toString()); // Enum -> String
         body.put("audienceUnderstanding", record.getAudienceUnderstanding().toString());
         body.put("speechInformation", record.getSpeechInformation().toString());
@@ -72,6 +78,29 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
                 .retrieve()
                 .bodyToMono(PythonAnalysisRes.class)
                 .block(); // 비동기 스레드 내에서 호출되므로 block() 사용 가능
+    }
+
+    // 파이썬 분석용 대본 단어 목록 생성 구현
+    private List<Map<String, Object>> getScriptWordsPayload(Script script) {
+        return scriptWordRepository.findAllByScriptSentenceScriptIdOrderByGlobalWordIndexAsc(script.getId())
+                .stream()
+                .map(this::toScriptWordPayload)
+                .toList();
+    }
+
+    // 파이썬 분석용 대본 단어 변환 구현
+    private Map<String, Object> toScriptWordPayload(ScriptWord scriptWord) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("scriptWordId", scriptWord.getId());
+        payload.put("scriptSentenceId", scriptWord.getScriptSentence().getId());
+        payload.put("sentenceIndex", scriptWord.getScriptSentence().getSentenceIndex());
+        payload.put("globalWordIndex", scriptWord.getGlobalWordIndex());
+        payload.put("sentenceWordIndex", scriptWord.getSentenceWordIndex());
+        payload.put("text", scriptWord.getText());
+        payload.put("normalizedText", scriptWord.getNormalizedText());
+        payload.put("startCharIndex", scriptWord.getStartCharIndex());
+        payload.put("endCharIndex", scriptWord.getEndCharIndex());
+        return payload;
     }
 
     // 파이썬 서버에 대본 기호 생성(Marking) 요청 구현
