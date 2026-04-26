@@ -86,6 +86,10 @@ class ConvertPptRequest(BaseModel):
 
 # --- 유틸리티 함수 ---
 
+def clamp(value, min_value, max_value):
+    """값을 지정한 범위 안으로 제한합니다."""
+    return max(min_value, min(value, max_value))
+
 def analyze_voice_features(file_path):
     """오디오 파일에서 정량적 특징 추출 (Librosa 사용)"""
     try:
@@ -117,6 +121,7 @@ def analyze_voice_features(file_path):
         avg_zcr = np.mean(zcr)
 
         return {
+            "durationSec": float(duration),
             "avgWpm": float(avg_wpm),
             "avgPitch": float(avg_pitch),
             "avgIntensity": float(avg_intensity),
@@ -131,6 +136,178 @@ def analyze_voice_features(file_path):
     except Exception as e:
         print(f"[Python] 음성 분석 중 오류: {e}")
         return None
+
+def build_word_results(script_words, duration_sec):
+    """임시 단어 정렬 결과를 생성합니다."""
+    if not script_words:
+        return []
+
+    duration_ms = max(int(duration_sec * 1000), len(script_words) * 200)
+    slot_ms = max(int(duration_ms / len(script_words)), 1)
+    word_results = []
+
+    for index, word in enumerate(script_words):
+        start_ms = index * slot_ms
+        end_ms = duration_ms if index == len(script_words) - 1 else min((index + 1) * slot_ms, duration_ms)
+        confidence = round(clamp(0.92 - (index % 7) * 0.03, 0.65, 0.95), 2)
+        word_results.append({
+            "wordIndex": word.globalWordIndex,
+            "globalWordIndex": word.globalWordIndex,
+            "sentenceWordIndex": word.sentenceWordIndex,
+            "startMs": start_ms,
+            "endMs": end_ms,
+            "confidence": confidence,
+            "skipped": False,
+            "status": "NORMAL"
+        })
+
+    return word_results
+
+def group_words_by_sentence(script_words):
+    """대본 단어를 문장 단위로 묶습니다."""
+    sentence_map = {}
+    for word in script_words:
+        sentence = sentence_map.setdefault(word.sentenceIndex, {
+            "scriptSentenceId": word.scriptSentenceId,
+            "sentenceIndex": word.sentenceIndex,
+            "words": []
+        })
+        sentence["words"].append(word)
+
+    return [
+        sentence_map[key]
+        for key in sorted(sentence_map.keys())
+    ]
+
+def build_sentence_results(script_words, word_results, features):
+    """임시 문장 단위 분석 결과를 생성합니다."""
+    if not script_words or not word_results:
+        return []
+
+    word_result_map = {
+        result["globalWordIndex"]: result
+        for result in word_results
+    }
+    sentence_results = []
+
+    for sentence in group_words_by_sentence(script_words):
+        words = sentence["words"]
+        related_results = [
+            word_result_map[word.globalWordIndex]
+            for word in words
+            if word.globalWordIndex in word_result_map
+        ]
+        if not related_results:
+            continue
+
+        start_ms = min(result["startMs"] for result in related_results)
+        end_ms = max(result["endMs"] for result in related_results)
+        duration_min = max((end_ms - start_ms) / 60000, 0.001)
+        word_count = len(words)
+        skipped_word_count = sum(1 for result in related_results if result["skipped"])
+        wpm = word_count / duration_min
+        avg_confidence = sum(result["confidence"] for result in related_results) / len(related_results)
+        score = clamp(avg_confidence * 100 - abs(wpm - 130) * 0.08 - skipped_word_count * 8, 0, 100)
+        pause_duration_ms = int(features.get("pauseRatio", 0.0) * (end_ms - start_ms))
+
+        sentence_results.append({
+            "scriptSentenceId": sentence["scriptSentenceId"],
+            "sentenceIndex": sentence["sentenceIndex"],
+            "startMs": start_ms,
+            "endMs": end_ms,
+            "wordCount": word_count,
+            "skippedWordCount": skipped_word_count,
+            "wpm": round(float(wpm), 2),
+            "pauseDurationMs": pause_duration_ms,
+            "avgPitch": features.get("avgPitch", 0.0),
+            "avgIntensity": features.get("avgIntensity", 0.0),
+            "score": round(float(score), 2),
+            "status": resolve_sentence_status(wpm, avg_confidence, skipped_word_count)
+        })
+
+    return sentence_results
+
+def resolve_sentence_status(wpm, avg_confidence, skipped_word_count):
+    """문장 결과 상태를 결정합니다."""
+    if skipped_word_count > 0 or avg_confidence < 0.7:
+        return "MISMATCH"
+    if wpm > 170:
+        return "FAST"
+    if wpm < 80:
+        return "SLOW"
+    return "NORMAL"
+
+def build_issue_results(sentence_results):
+    """문제 구간 Top 5 결과를 생성합니다."""
+    issues = []
+    ranked_sentences = sorted(sentence_results, key=lambda result: result.get("score", 100.0))
+
+    for display_order, sentence in enumerate(ranked_sentences[:5]):
+        issue_type = resolve_issue_type(sentence)
+        issues.append({
+            "scriptSentenceId": sentence.get("scriptSentenceId"),
+            "sentenceIndex": sentence.get("sentenceIndex"),
+            "startIndex": sentence.get("sentenceIndex"),
+            "endIndex": sentence.get("sentenceIndex"),
+            "issueType": issue_type,
+            "issueSummary": build_issue_summary(issue_type),
+            "feedbackContent": build_issue_feedback(issue_type),
+            "reason": build_issue_reason(sentence, issue_type),
+            "score": sentence.get("score"),
+            "displayOrder": display_order,
+            "wpm": sentence.get("wpm"),
+            "intensity": sentence.get("avgIntensity")
+        })
+
+    return issues
+
+def resolve_issue_type(sentence):
+    """문제 유형을 결정합니다."""
+    if sentence.get("skippedWordCount", 0) > 0:
+        return "SKIPPED_WORDS"
+    if sentence.get("wpm", 0.0) > 170:
+        return "TOO_FAST"
+    if sentence.get("wpm", 0.0) < 80:
+        return "TOO_SLOW"
+    if sentence.get("pauseDurationMs", 0) > 1200:
+        return "LONG_PAUSE"
+    if sentence.get("score", 100.0) < 70:
+        return "LOW_SCORE"
+    return "LOW_CONFIDENCE"
+
+def build_issue_summary(issue_type):
+    """문제 유형 요약을 생성합니다."""
+    summaries = {
+        "SKIPPED_WORDS": "일부 단어가 누락되었습니다.",
+        "TOO_FAST": "문장 발화 속도가 빠릅니다.",
+        "TOO_SLOW": "문장 발화 속도가 느립니다.",
+        "LONG_PAUSE": "문장 안의 쉼이 깁니다.",
+        "LOW_SCORE": "문장 점수가 낮습니다.",
+        "LOW_CONFIDENCE": "발화 신뢰도가 낮습니다."
+    }
+    return summaries.get(issue_type, "개선이 필요한 문장입니다.")
+
+def build_issue_feedback(issue_type):
+    """문제 유형별 피드백을 생성합니다."""
+    feedback = {
+        "SKIPPED_WORDS": "대본 단어를 빠뜨리지 않도록 문장 단위로 천천히 다시 읽어보세요.",
+        "TOO_FAST": "핵심 단어 앞뒤에서 짧게 쉬며 속도를 낮춰보세요.",
+        "TOO_SLOW": "문장 흐름이 끊기지 않도록 의미 단위로 이어 읽어보세요.",
+        "LONG_PAUSE": "쉼은 유지하되 1초 안팎으로 짧게 조절해보세요.",
+        "LOW_SCORE": "발음, 속도, 쉼을 함께 점검하며 다시 연습해보세요.",
+        "LOW_CONFIDENCE": "입 모양을 또렷하게 하고 문장 끝을 흐리지 않게 말해보세요."
+    }
+    return feedback.get(issue_type, "문장 단위로 다시 연습해보세요.")
+
+def build_issue_reason(sentence, issue_type):
+    """문제 구간 사유를 생성합니다."""
+    return (
+        f"유형={issue_type}, "
+        f"점수={sentence.get('score')}, "
+        f"WPM={sentence.get('wpm')}, "
+        f"쉼={sentence.get('pauseDurationMs')}ms, "
+        f"누락단어={sentence.get('skippedWordCount')}"
+    )
 
 def generate_ai_feedback(features, req: AnalyzeRequest):
     """Gemini를 사용한 심층 피드백 생성 (상황 컨텍스트 활용)"""
@@ -199,11 +376,22 @@ async def run_analysis(req: AnalyzeRequest):
     if not features:
         raise HTTPException(status_code=500, detail="Audio analysis failed")
 
-    # 3. AI 상세 피드백 생성
+    # 3. 단어/문장/문제 구간 결과 생성
+    word_results = build_word_results(req.scriptWords, features.get("durationSec", 0.0))
+    sentence_results = build_sentence_results(req.scriptWords, word_results, features)
+    issue_results = build_issue_results(sentence_results)
+
+    # 4. AI 상세 피드백 생성
     ai_feedback = generate_ai_feedback(features, req)
     
-    # 4. 결과 병합
-    result = {**features, **ai_feedback}
+    # 5. 결과 병합
+    result = {
+        **features,
+        **ai_feedback,
+        "wordResults": word_results,
+        "sentenceResults": sentence_results,
+        "issues": issue_results
+    }
     
     print(f"[ID: {req.practiceId}] 분석 완료")
     return result

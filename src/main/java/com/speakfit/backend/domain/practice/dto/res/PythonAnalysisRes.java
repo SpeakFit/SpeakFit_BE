@@ -11,6 +11,8 @@ import java.util.List;
 @Getter
 @NoArgsConstructor
 public class PythonAnalysisRes {
+    @JsonProperty("durationSec")
+    private Double durationSec;
     @JsonProperty("avgWpm")
     private Double avgWpm;
     @JsonProperty("avgPitch")
