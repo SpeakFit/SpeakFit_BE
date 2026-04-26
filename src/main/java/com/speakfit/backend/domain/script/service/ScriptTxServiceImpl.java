@@ -4,6 +4,7 @@ import com.speakfit.backend.domain.script.dto.req.AddScriptReq;
 import com.speakfit.backend.domain.script.dto.res.UploadPptRes;
 import com.speakfit.backend.domain.script.entity.PptSlide;
 import com.speakfit.backend.domain.script.entity.Script;
+import com.speakfit.backend.domain.script.entity.ScriptSentence;
 import com.speakfit.backend.domain.script.enums.ScriptType;
 import com.speakfit.backend.domain.script.exception.ScriptErrorCode;
 import com.speakfit.backend.domain.script.repository.ScriptRepository;
@@ -22,6 +23,7 @@ public class ScriptTxServiceImpl implements ScriptTxService {
 
     private final ScriptRepository scriptRepository;
     private final UserRepository userRepository;
+    private final ScriptContentParser scriptContentParser;
 
     @Override
     @Transactional
@@ -36,6 +38,10 @@ public class ScriptTxServiceImpl implements ScriptTxService {
                 .scriptType(ScriptType.TEXT)
                 .user(user)
                 .build();
+
+        List<ScriptSentence> sentences = scriptContentParser.parse(req.getContent());
+        sentences.forEach(script::addScriptSentence);
+
         return scriptRepository.save(script);
     }
 

@@ -2,6 +2,7 @@ package com.speakfit.backend.domain.practice.dto.res;
 
 import com.speakfit.backend.domain.practice.enums.AudienceType;
 import com.speakfit.backend.domain.practice.enums.AudienceUnderstanding;
+import com.speakfit.backend.domain.practice.enums.PracticeIssueType;
 import com.speakfit.backend.domain.practice.enums.SpeechInformation;
 import com.speakfit.backend.domain.practice.enums.Status;
 import lombok.AllArgsConstructor;
@@ -88,10 +89,16 @@ public class GetPracticeReportRes {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class PracticeIssueRes {
+        private Long scriptSentenceId;
+        private Integer sentenceIndex;
         private Integer startIndex;
         private Integer endIndex;
+        private PracticeIssueType issueType;
         private String issueSummary;
         private String feedbackContent;
+        private String reason;
+        private Double score;
+        private Integer displayOrder;
         private Double wpm;
         private Double intensity;
     }
@@ -101,10 +108,20 @@ public class GetPracticeReportRes {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class SentenceRes {
+        private Long scriptSentenceId;
         private Integer index;
         private String text;
         private Double startTime;
         private Double endTime;
+        private Long startMs;
+        private Long endMs;
+        private Integer wordCount;
+        private Integer skippedWordCount;
+        private Double wpm;
+        private Long pauseDurationMs;
+        private Double avgPitch;
+        private Double avgIntensity;
+        private Double score;
         private String status;
     }
 }

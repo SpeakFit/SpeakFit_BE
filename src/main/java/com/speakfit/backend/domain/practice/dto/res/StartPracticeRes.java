@@ -21,6 +21,8 @@ public class StartPracticeRes {
         private String webSocketUrl;
         private Status status;
         private List<ContentRes> contentList;
+        private List<SentenceRes> sentences;
+        private List<WordRes> scriptWords;
         private LocalDateTime createdAt;
     }
 
@@ -37,5 +39,35 @@ public class StartPracticeRes {
         
         @JsonProperty("isEmphasis")
         private boolean emphasis;
+    }
+
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SentenceRes {
+        private Long scriptSentenceId;
+        private Integer sentenceIndex;
+        private String originalText;
+        private String normalizedText;
+        private Integer startCharIndex;
+        private Integer endCharIndex;
+        private List<WordRes> words;
+    }
+
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class WordRes {
+        private Long scriptWordId;
+        private Long scriptSentenceId;
+        private Integer sentenceIndex;
+        private Integer globalWordIndex;
+        private Integer sentenceWordIndex;
+        private String text;
+        private String normalizedText;
+        private Integer startCharIndex;
+        private Integer endCharIndex;
     }
 }
