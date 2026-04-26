@@ -108,10 +108,20 @@ public class GetPracticeReportRes {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class SentenceRes {
+        private Long scriptSentenceId;
         private Integer index;
         private String text;
         private Double startTime;
         private Double endTime;
+        private Long startMs;
+        private Long endMs;
+        private Integer wordCount;
+        private Integer skippedWordCount;
+        private Double wpm;
+        private Long pauseDurationMs;
+        private Double avgPitch;
+        private Double avgIntensity;
+        private Double score;
         private String status;
     }
 }

@@ -47,6 +47,7 @@ public class PracticeServiceImpl implements PracticeService {
     private final AiAnalysisResultRepository aiAnalysisResultRepository;
     private final PracticeIssueRepository practiceIssueRepository;
     private final PracticeDetailRepository practiceDetailRepository;
+    private final PracticeSentenceResultRepository practiceSentenceResultRepository;
     private final AiAnalysisService aiAnalysisService;
     private final PracticeTxService practiceTxService;
     private final ScriptContentParser scriptContentParser;
@@ -303,10 +304,11 @@ public class PracticeServiceImpl implements PracticeService {
         AnalysisResult analysis = analysisResultRepository.findByPracticeRecord(record).orElseThrow();
         AiAnalysisResult aiResult = aiAnalysisResultRepository.findByPracticeRecord(record).orElseThrow();
         List<PracticeIssue> issues = practiceIssueRepository.findAllByPracticeRecordIdOrderByDisplayOrderAscIdAsc(record.getId());
+        List<PracticeSentenceResult> sentenceResults = practiceSentenceResultRepository.findAllByPracticeRecordIdOrderBySentenceIndexAsc(record.getId());
         List<PracticeDetail> details = practiceDetailRepository.findAllByPracticeRecordIdOrderByWordIndexAsc(record.getId());
 
-        // 4. 실시간 분석 데이터를 문장 단위로 병합
-        List<GetPracticeReportRes.SentenceRes> sentences = mergeDetailsToSentences(record.getScript().getContent(), details);
+        // 4. 문장 단위 분석 결과 우선 사용 및 기존 데이터 fallback
+        List<GetPracticeReportRes.SentenceRes> sentences = buildReportSentences(record, sentenceResults, details);
 
         // 5. 최종 리포트 DTO 조립 및 반환
         return GetPracticeReportRes.Response.builder()
@@ -354,6 +356,51 @@ public class PracticeServiceImpl implements PracticeService {
                         .build()).collect(Collectors.toList()))
                 .sentences(sentences)
                 .build();
+    }
+
+    // 리포트 문장 목록 구성 구현
+    private List<GetPracticeReportRes.SentenceRes> buildReportSentences(PracticeRecord record,
+                                                                        List<PracticeSentenceResult> sentenceResults,
+                                                                        List<PracticeDetail> details) {
+        if (sentenceResults != null && !sentenceResults.isEmpty()) {
+            return sentenceResults.stream()
+                    .map(this::toReportSentenceRes)
+                    .toList();
+        }
+
+        return mergeDetailsToSentences(record.getScript().getContent(), details);
+    }
+
+    // 문장 단위 분석 결과 응답 변환 구현
+    private GetPracticeReportRes.SentenceRes toReportSentenceRes(PracticeSentenceResult sentenceResult) {
+        ScriptSentence scriptSentence = sentenceResult.getScriptSentence();
+
+        return GetPracticeReportRes.SentenceRes.builder()
+                .scriptSentenceId(scriptSentence != null ? scriptSentence.getId() : null)
+                .index(sentenceResult.getSentenceIndex())
+                .text(scriptSentence != null ? scriptSentence.getOriginalText() : null)
+                .startTime(toSeconds(sentenceResult.getStartMs()))
+                .endTime(toSeconds(sentenceResult.getEndMs()))
+                .startMs(sentenceResult.getStartMs())
+                .endMs(sentenceResult.getEndMs())
+                .wordCount(sentenceResult.getWordCount())
+                .skippedWordCount(sentenceResult.getSkippedWordCount())
+                .wpm(sentenceResult.getWpm())
+                .pauseDurationMs(sentenceResult.getPauseDurationMs())
+                .avgPitch(sentenceResult.getAvgPitch())
+                .avgIntensity(sentenceResult.getAvgIntensity())
+                .score(sentenceResult.getScore())
+                .status(sentenceResult.getStatus() != null ? sentenceResult.getStatus().name() : null)
+                .build();
+    }
+
+    // 밀리초를 초 단위로 변환 구현
+    private Double toSeconds(Long millis) {
+        if (millis == null) {
+            return null;
+        }
+
+        return millis / 1000.0;
     }
 
     // 낭독 기호 대본 파싱 헬퍼 메서드
