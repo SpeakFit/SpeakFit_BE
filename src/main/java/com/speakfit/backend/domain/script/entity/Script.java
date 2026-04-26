@@ -77,11 +77,29 @@ public class Script extends BaseEntity {
     @OneToMany(mappedBy = "script", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<PptSlide> pptSlides = new ArrayList<>();
 
+    @Builder.Default
+    @OneToMany(mappedBy = "script", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ScriptSentence> scriptSentences = new ArrayList<>();
+
+    // PPT 슬라이드 연관관계 추가 구현
     public void addPptSlide(PptSlide pptSlide) {
         this.pptSlides.add(pptSlide);
         if (pptSlide.getScript() != this) {
             pptSlide.setScript(this);
         }
+    }
+
+    // 대본 문장 연관관계 추가 구현
+    public void addScriptSentence(ScriptSentence scriptSentence) {
+        this.scriptSentences.add(scriptSentence);
+        if (scriptSentence.getScript() != this) {
+            scriptSentence.setScript(this);
+        }
+    }
+
+    // 대본 문장 연관관계 초기화 구현
+    public void clearScriptSentences() {
+        this.scriptSentences.clear();
     }
 
     public void updateMarkedContent(String markedContent) {
