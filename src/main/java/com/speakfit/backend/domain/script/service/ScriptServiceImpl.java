@@ -43,6 +43,7 @@ import java.util.UUID;
 public class ScriptServiceImpl implements ScriptService {
 
     private final ScriptRepository scriptRepository;
+    private final com.speakfit.backend.domain.practice.repository.PracticeRepository practiceRepository;
     private final AiAnalysisService aiAnalysisService;
     private final ScriptTxService scriptTxService;
     private final UserRepository userRepository;
@@ -187,6 +188,9 @@ public class ScriptServiceImpl implements ScriptService {
         if (!script.getUser().getId().equals(userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
+
+        // 연관된 연습 기록 먼저 삭제 (외래 키 제약 조건 해결)
+        practiceRepository.deleteAllByScriptId(scriptId);
 
         scriptRepository.delete(script);
         deleteDirectoryQuietly(Paths.get("uploads/ppt/" + scriptId).toAbsolutePath().normalize());
