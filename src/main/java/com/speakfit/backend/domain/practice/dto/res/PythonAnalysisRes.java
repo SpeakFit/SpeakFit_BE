@@ -54,6 +54,8 @@ public class PythonAnalysisRes {
 
     @JsonProperty("wordResults")
     private List<WordResult> wordResults;
+    @JsonProperty("sentenceResults")
+    private List<SentenceResult> sentenceResults;
 
     @Getter
     @NoArgsConstructor
@@ -83,5 +85,34 @@ public class PythonAnalysisRes {
 
             return wordIndex;
         }
+    }
+
+    @Getter
+    @NoArgsConstructor
+    public static class SentenceResult {
+        @JsonProperty("scriptSentenceId")
+        private Long scriptSentenceId;
+        @JsonProperty("sentenceIndex")
+        private Integer sentenceIndex;
+        @JsonProperty("startMs")
+        private Long startMs;
+        @JsonProperty("endMs")
+        private Long endMs;
+        @JsonProperty("wordCount")
+        private Integer wordCount;
+        @JsonProperty("skippedWordCount")
+        private Integer skippedWordCount;
+        @JsonProperty("wpm")
+        private Double wpm;
+        @JsonProperty("pauseDurationMs")
+        private Long pauseDurationMs;
+        @JsonProperty("avgPitch")
+        private Double avgPitch;
+        @JsonProperty("avgIntensity")
+        private Double avgIntensity;
+        @JsonProperty("score")
+        private Double score;
+        @JsonProperty("status")
+        private DetailStatus status;
     }
 }

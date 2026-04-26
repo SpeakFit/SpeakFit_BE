@@ -4,6 +4,7 @@ import com.speakfit.backend.domain.practice.dto.res.PythonAnalysisRes;
 import com.speakfit.backend.domain.practice.entity.AiAnalysisResult;
 import com.speakfit.backend.domain.practice.entity.AnalysisResult;
 import com.speakfit.backend.domain.practice.entity.PracticeRecord;
+import com.speakfit.backend.domain.practice.entity.PracticeSentenceResult;
 import com.speakfit.backend.domain.practice.entity.PracticeWordResult;
 import com.speakfit.backend.domain.practice.enums.DetailStatus;
 import com.speakfit.backend.domain.practice.enums.Status;
@@ -11,8 +12,11 @@ import com.speakfit.backend.domain.practice.exception.PracticeErrorCode;
 import com.speakfit.backend.domain.practice.repository.AiAnalysisResultRepository;
 import com.speakfit.backend.domain.practice.repository.AnalysisResultRepository;
 import com.speakfit.backend.domain.practice.repository.PracticeRepository;
+import com.speakfit.backend.domain.practice.repository.PracticeSentenceResultRepository;
 import com.speakfit.backend.domain.practice.repository.PracticeWordResultRepository;
+import com.speakfit.backend.domain.script.entity.ScriptSentence;
 import com.speakfit.backend.domain.script.entity.ScriptWord;
+import com.speakfit.backend.domain.script.repository.ScriptSentenceRepository;
 import com.speakfit.backend.domain.script.repository.ScriptWordRepository;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -34,7 +39,9 @@ public class AiAnalysisTxServiceImpl implements AiAnalysisTxService {
     private final AnalysisResultRepository analysisResultRepository;
     private final AiAnalysisResultRepository aiAnalysisResultRepository;
     private final PracticeWordResultRepository practiceWordResultRepository;
+    private final PracticeSentenceResultRepository practiceSentenceResultRepository;
     private final ScriptWordRepository scriptWordRepository;
+    private final ScriptSentenceRepository scriptSentenceRepository;
 
     // 분석 결과 데이터 저장 로직 구현
     @Override
@@ -66,7 +73,10 @@ public class AiAnalysisTxServiceImpl implements AiAnalysisTxService {
         // 3. 단어 단위 정렬 결과 저장
         saveWordResults(record, data.getWordResults());
 
-        // 4. 상태 변경
+        // 4. 문장 단위 분석 결과 저장
+        saveSentenceResults(record, data.getSentenceResults());
+
+        // 5. 상태 변경
         record.updateStatus(Status.ANALYZED);
         practiceRepository.saveAndFlush(record);
     }
@@ -121,6 +131,104 @@ public class AiAnalysisTxServiceImpl implements AiAnalysisTxService {
 
         if (wordResult.getStatus() != null) {
             return wordResult.getStatus();
+        }
+
+        return DetailStatus.NORMAL;
+    }
+
+    // 문장 단위 분석 결과 저장 구현
+    private void saveSentenceResults(PracticeRecord record, List<PythonAnalysisRes.SentenceResult> sentenceResults) {
+        if (sentenceResults == null || sentenceResults.isEmpty()) {
+            return;
+        }
+
+        practiceSentenceResultRepository.deleteAllByPracticeRecordId(record.getId());
+
+        Map<Integer, ScriptSentence> sentenceIndexMap = scriptSentenceRepository
+                .findAllByScriptIdOrderBySentenceIndexAsc(record.getScript().getId())
+                .stream()
+                .collect(Collectors.toMap(ScriptSentence::getSentenceIndex, Function.identity()));
+        Map<Long, ScriptSentence> sentenceIdMap = sentenceIndexMap.values()
+                .stream()
+                .filter(sentence -> sentence.getId() != null)
+                .collect(Collectors.toMap(ScriptSentence::getId, Function.identity()));
+
+        List<PracticeSentenceResult> results = sentenceResults.stream()
+                .filter(sentenceResult -> sentenceResult.getSentenceIndex() != null || sentenceResult.getScriptSentenceId() != null)
+                .map(sentenceResult -> toPracticeSentenceResult(record, sentenceResult, resolveScriptSentence(sentenceResult, sentenceIndexMap, sentenceIdMap)))
+                .filter(Objects::nonNull)
+                .toList();
+
+        practiceSentenceResultRepository.saveAll(results);
+    }
+
+    // 문장 단위 분석 결과 엔티티 변환 구현
+    private PracticeSentenceResult toPracticeSentenceResult(PracticeRecord record, PythonAnalysisRes.SentenceResult sentenceResult, ScriptSentence scriptSentence) {
+        Integer sentenceIndex = sentenceResult.getSentenceIndex();
+        if (sentenceIndex == null && scriptSentence != null) {
+            sentenceIndex = scriptSentence.getSentenceIndex();
+        }
+        if (sentenceIndex == null) {
+            return null;
+        }
+
+        return PracticeSentenceResult.builder()
+                .practiceRecord(record)
+                .scriptSentence(scriptSentence)
+                .sentenceIndex(sentenceIndex)
+                .startMs(sentenceResult.getStartMs())
+                .endMs(sentenceResult.getEndMs())
+                .wordCount(resolveWordCount(sentenceResult, scriptSentence))
+                .skippedWordCount(resolveSkippedWordCount(sentenceResult))
+                .wpm(sentenceResult.getWpm())
+                .pauseDurationMs(sentenceResult.getPauseDurationMs())
+                .avgPitch(sentenceResult.getAvgPitch())
+                .avgIntensity(sentenceResult.getAvgIntensity())
+                .score(sentenceResult.getScore())
+                .status(resolveSentenceStatus(sentenceResult))
+                .build();
+    }
+
+    // 분석 결과 문장 매칭 구현
+    private ScriptSentence resolveScriptSentence(PythonAnalysisRes.SentenceResult sentenceResult,
+                                                 Map<Integer, ScriptSentence> sentenceIndexMap,
+                                                 Map<Long, ScriptSentence> sentenceIdMap) {
+        if (sentenceResult.getScriptSentenceId() != null) {
+            ScriptSentence sentence = sentenceIdMap.get(sentenceResult.getScriptSentenceId());
+            if (sentence != null) {
+                return sentence;
+            }
+        }
+
+        return sentenceIndexMap.get(sentenceResult.getSentenceIndex());
+    }
+
+    // 문장 단어 수 결정 구현
+    private Integer resolveWordCount(PythonAnalysisRes.SentenceResult sentenceResult, ScriptSentence scriptSentence) {
+        if (sentenceResult.getWordCount() != null) {
+            return sentenceResult.getWordCount();
+        }
+
+        if (scriptSentence == null || scriptSentence.getScriptWords() == null) {
+            return null;
+        }
+
+        return scriptSentence.getScriptWords().size();
+    }
+
+    // 문장 누락 단어 수 결정 구현
+    private Integer resolveSkippedWordCount(PythonAnalysisRes.SentenceResult sentenceResult) {
+        if (sentenceResult.getSkippedWordCount() != null) {
+            return sentenceResult.getSkippedWordCount();
+        }
+
+        return 0;
+    }
+
+    // 문장 결과 상태 결정 구현
+    private DetailStatus resolveSentenceStatus(PythonAnalysisRes.SentenceResult sentenceResult) {
+        if (sentenceResult.getStatus() != null) {
+            return sentenceResult.getStatus();
         }
 
         return DetailStatus.NORMAL;

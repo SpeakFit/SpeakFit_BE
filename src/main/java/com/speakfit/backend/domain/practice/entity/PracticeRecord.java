@@ -74,6 +74,10 @@ public class PracticeRecord extends BaseEntity {
     @OneToMany(mappedBy = "practiceRecord", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<PracticeWordResult> practiceWordResults = new ArrayList<>();
 
+    @Builder.Default
+    @OneToMany(mappedBy = "practiceRecord", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<PracticeSentenceResult> practiceSentenceResults = new ArrayList<>();
+
     public void stopRecording(String audioUrl, Double time) {
         this.audioUrl = audioUrl;
         this.time = time;
