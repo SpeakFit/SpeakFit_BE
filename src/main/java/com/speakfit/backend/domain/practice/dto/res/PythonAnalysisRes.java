@@ -1,8 +1,6 @@
 package com.speakfit.backend.domain.practice.dto.res;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.speakfit.backend.domain.practice.enums.DetailStatus;
-import com.speakfit.backend.domain.practice.enums.PracticeIssueType;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -65,12 +63,18 @@ public class PythonAnalysisRes {
     @Getter
     @NoArgsConstructor
     public static class WordResult {
+        @JsonProperty("scriptWordId")
+        private Long scriptWordId;
         @JsonProperty("wordIndex")
         private Integer wordIndex;
         @JsonProperty("globalWordIndex")
         private Integer globalWordIndex;
         @JsonProperty("sentenceWordIndex")
         private Integer sentenceWordIndex;
+        @JsonProperty("scriptText")
+        private String scriptText;
+        @JsonProperty("spokenText")
+        private String spokenText;
         @JsonProperty("startMs")
         private Long startMs;
         @JsonProperty("endMs")
@@ -80,7 +84,7 @@ public class PythonAnalysisRes {
         @JsonProperty("skipped")
         private Boolean skipped;
         @JsonProperty("status")
-        private DetailStatus status;
+        private String status;
 
         // Python 응답 단어 인덱스 해석 구현
         public Integer getResolvedGlobalWordIndex() {
@@ -107,6 +111,8 @@ public class PythonAnalysisRes {
         private Integer wordCount;
         @JsonProperty("skippedWordCount")
         private Integer skippedWordCount;
+        @JsonProperty("mismatchWordCount")
+        private Integer mismatchWordCount;
         @JsonProperty("wpm")
         private Double wpm;
         @JsonProperty("pauseDurationMs")
@@ -118,7 +124,7 @@ public class PythonAnalysisRes {
         @JsonProperty("score")
         private Double score;
         @JsonProperty("status")
-        private DetailStatus status;
+        private String status;
     }
 
     @Getter
@@ -133,7 +139,7 @@ public class PythonAnalysisRes {
         @JsonProperty("endIndex")
         private Integer endIndex;
         @JsonProperty("issueType")
-        private PracticeIssueType issueType;
+        private String issueType;
         @JsonProperty("issueSummary")
         private String issueSummary;
         @JsonProperty("feedbackContent")

@@ -8,6 +8,7 @@ import com.speakfit.backend.domain.practice.entity.PracticeRecord;
 import com.speakfit.backend.domain.practice.entity.PracticeSentenceResult;
 import com.speakfit.backend.domain.practice.entity.PracticeWordResult;
 import com.speakfit.backend.domain.practice.enums.DetailStatus;
+import com.speakfit.backend.domain.practice.enums.PracticeIssueType;
 import com.speakfit.backend.domain.practice.enums.Status;
 import com.speakfit.backend.domain.practice.exception.PracticeErrorCode;
 import com.speakfit.backend.domain.practice.repository.AiAnalysisResultRepository;
@@ -90,28 +91,54 @@ public class AiAnalysisTxServiceImpl implements AiAnalysisTxService {
 
     // 단어 단위 분석 결과 저장 구현
     private void saveWordResults(PracticeRecord record, List<PythonAnalysisRes.WordResult> wordResults) {
+        practiceWordResultRepository.deleteAllByPracticeRecordId(record.getId());
+
         if (wordResults == null || wordResults.isEmpty()) {
             return;
         }
-
-        practiceWordResultRepository.deleteAllByPracticeRecordId(record.getId());
 
         Map<Integer, ScriptWord> scriptWordMap = scriptWordRepository
                 .findAllByScriptSentenceScriptIdOrderByGlobalWordIndexAsc(record.getScript().getId())
                 .stream()
                 .collect(Collectors.toMap(ScriptWord::getGlobalWordIndex, Function.identity()));
+        Map<Long, ScriptWord> scriptWordIdMap = scriptWordMap.values()
+                .stream()
+                .filter(scriptWord -> scriptWord.getId() != null)
+                .collect(Collectors.toMap(ScriptWord::getId, Function.identity()));
 
         List<PracticeWordResult> results = wordResults.stream()
-                .filter(wordResult -> wordResult.getResolvedGlobalWordIndex() != null)
-                .map(wordResult -> toPracticeWordResult(record, wordResult, scriptWordMap.get(wordResult.getResolvedGlobalWordIndex())))
+                .filter(wordResult -> wordResult.getResolvedGlobalWordIndex() != null || wordResult.getScriptWordId() != null)
+                .map(wordResult -> toPracticeWordResult(record, wordResult, resolveScriptWord(wordResult, scriptWordMap, scriptWordIdMap)))
+                .filter(Objects::nonNull)
                 .toList();
 
         practiceWordResultRepository.saveAll(results);
     }
 
+    // 분석 결과 단어를 대본 단어와 매칭
+    private ScriptWord resolveScriptWord(PythonAnalysisRes.WordResult wordResult,
+                                         Map<Integer, ScriptWord> scriptWordMap,
+                                         Map<Long, ScriptWord> scriptWordIdMap) {
+        if (wordResult.getScriptWordId() != null) {
+            ScriptWord scriptWord = scriptWordIdMap.get(wordResult.getScriptWordId());
+            if (scriptWord != null) {
+                return scriptWord;
+            }
+        }
+
+        return scriptWordMap.get(wordResult.getResolvedGlobalWordIndex());
+    }
+
     // 단어 단위 분석 결과 엔티티 변환 구현
     private PracticeWordResult toPracticeWordResult(PracticeRecord record, PythonAnalysisRes.WordResult wordResult, ScriptWord scriptWord) {
         Integer globalWordIndex = wordResult.getResolvedGlobalWordIndex();
+        if (globalWordIndex == null && scriptWord != null) {
+            globalWordIndex = scriptWord.getGlobalWordIndex();
+        }
+        if (globalWordIndex == null) {
+            return null;
+        }
+
         Integer sentenceWordIndex = wordResult.getSentenceWordIndex();
         if (sentenceWordIndex == null && scriptWord != null) {
             sentenceWordIndex = scriptWord.getSentenceWordIndex();
@@ -136,20 +163,16 @@ public class AiAnalysisTxServiceImpl implements AiAnalysisTxService {
             return DetailStatus.MISMATCH;
         }
 
-        if (wordResult.getStatus() != null) {
-            return wordResult.getStatus();
-        }
-
-        return DetailStatus.NORMAL;
+        return DetailStatus.fromString(wordResult.getStatus(), DetailStatus.NORMAL);
     }
 
     // 문장 단위 분석 결과 저장 구현
     private void saveSentenceResults(PracticeRecord record, List<PythonAnalysisRes.SentenceResult> sentenceResults) {
+        practiceSentenceResultRepository.deleteAllByPracticeRecordId(record.getId());
+
         if (sentenceResults == null || sentenceResults.isEmpty()) {
             return;
         }
-
-        practiceSentenceResultRepository.deleteAllByPracticeRecordId(record.getId());
 
         Map<Integer, ScriptSentence> sentenceIndexMap = scriptSentenceRepository
                 .findAllByScriptIdOrderBySentenceIndexAsc(record.getScript().getId())
@@ -234,20 +257,16 @@ public class AiAnalysisTxServiceImpl implements AiAnalysisTxService {
 
     // 문장 결과 상태 결정 구현
     private DetailStatus resolveSentenceStatus(PythonAnalysisRes.SentenceResult sentenceResult) {
-        if (sentenceResult.getStatus() != null) {
-            return sentenceResult.getStatus();
-        }
-
-        return DetailStatus.NORMAL;
+        return DetailStatus.fromString(sentenceResult.getStatus(), DetailStatus.NORMAL);
     }
 
     // 문제 구간 분석 결과 저장 구현
     private void saveIssues(PracticeRecord record, List<PythonAnalysisRes.IssueResult> issues) {
+        practiceIssueRepository.deleteAllByPracticeRecordId(record.getId());
+
         if (issues == null || issues.isEmpty()) {
             return;
         }
-
-        practiceIssueRepository.deleteAllByPracticeRecordId(record.getId());
 
         Map<Integer, ScriptSentence> sentenceIndexMap = scriptSentenceRepository
                 .findAllByScriptIdOrderBySentenceIndexAsc(record.getScript().getId())
@@ -281,7 +300,7 @@ public class AiAnalysisTxServiceImpl implements AiAnalysisTxService {
         return PracticeIssue.builder()
                 .practiceRecord(record)
                 .scriptSentence(scriptSentence)
-                .issueType(issue.getIssueType())
+                .issueType(resolveIssueType(issue))
                 .sentenceIndex(sentenceIndex)
                 .startIndex(issue.getStartIndex())
                 .endIndex(issue.getEndIndex())
@@ -316,6 +335,11 @@ public class AiAnalysisTxServiceImpl implements AiAnalysisTxService {
         }
 
         return defaultDisplayOrder;
+    }
+
+    // Python 응답 이슈 유형 문자열을 Java Enum으로 안전하게 변환
+    private PracticeIssueType resolveIssueType(PythonAnalysisRes.IssueResult issue) {
+        return PracticeIssueType.fromString(issue.getIssueType(), PracticeIssueType.LOW_SCORE);
     }
 
     // 분석 실패 시 상태 처리 로직 구현

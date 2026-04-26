@@ -62,9 +62,12 @@ def build_word_results(script_words, duration_sec):
         end_ms = duration_ms if index == len(script_words) - 1 else min((index + 1) * slot_ms, duration_ms)
         confidence = round(clamp(0.92 - (index % 7) * 0.03, 0.65, 0.95), 2)
         word_results.append({
+            "scriptWordId": word.scriptWordId,
             "wordIndex": word.globalWordIndex,
             "globalWordIndex": word.globalWordIndex,
             "sentenceWordIndex": word.sentenceWordIndex,
+            "scriptText": word.text,
+            "spokenText": word.text,
             "startMs": start_ms,
             "endMs": end_ms,
             "confidence": confidence,
@@ -112,6 +115,7 @@ def build_sentence_results(script_words, word_results, features):
         wpm = len(words) / duration_min
         avg_confidence = sum(r["confidence"] for r in related_results) / len(related_results)
         skipped_word_count = sum(1 for r in related_results if r["skipped"])
+        mismatch_word_count = sum(1 for r in related_results if r.get("status") == "MISMATCH" and not r["skipped"])
         score = clamp(avg_confidence * 100 - abs(wpm - 130) * 0.08 - skipped_word_count * 8, 0, 100)
         pause_duration_ms = int(features.get("pauseRatio", 0.0) * (end_ms - start_ms))
 
@@ -122,6 +126,7 @@ def build_sentence_results(script_words, word_results, features):
             "endMs": end_ms,
             "wordCount": len(words),
             "skippedWordCount": skipped_word_count,
+            "mismatchWordCount": mismatch_word_count,
             "wpm": round(float(wpm), 2),
             "pauseDurationMs": pause_duration_ms,
             "avgPitch": features.get("avgPitch", 0.0),
