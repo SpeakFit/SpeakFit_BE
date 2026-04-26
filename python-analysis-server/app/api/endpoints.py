@@ -9,9 +9,10 @@ from app.schemas.models import (
     UpdateScriptRequest, ConvertPptRequest, ScriptWordPayload
 )
 from app.services.voice_service import (
-    analyze_voice_features, build_word_results, 
+    analyze_voice_features, build_aligned_word_results, build_word_results, 
     build_sentence_results, build_issue_results
 )
+from app.services.stt_service import transcribe_audio
 from app.services.ai_service import (
     generate_ai_feedback, generate_script_ai, 
     update_script_ai, mark_script_ai
@@ -102,7 +103,13 @@ async def run_analysis(req: AnalyzeRequest):
     if not features:
         raise HTTPException(status_code=500, detail="Analysis failed")
 
-    word_results = build_word_results(req.scriptWords, features.get("durationSec", 0.0))
+    stt_words = transcribe_audio(req.audioUrl)
+    if stt_words:
+        print(f"[Python] 분석 STT 단어 타임스탬프 사용 가능: words={len(stt_words)}")
+    else:
+        print("[Python] 분석 STT 단어 타임스탬프 없음: duration 기반 fallback 사용")
+
+    word_results = build_aligned_word_results(req.scriptWords, stt_words) if stt_words else build_word_results(req.scriptWords, features.get("durationSec", 0.0))
     sentence_results = build_sentence_results(req.scriptWords, word_results, features)
     issue_results = build_issue_results(sentence_results)
     ai_feedback = generate_ai_feedback(features, req)
