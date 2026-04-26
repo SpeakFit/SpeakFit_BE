@@ -9,8 +9,11 @@ import com.speakfit.backend.domain.practice.enums.Status;
 import com.speakfit.backend.domain.practice.exception.PracticeErrorCode;
 import com.speakfit.backend.domain.practice.repository.*;
 import com.speakfit.backend.domain.script.entity.Script;
+import com.speakfit.backend.domain.script.entity.ScriptSentence;
+import com.speakfit.backend.domain.script.entity.ScriptWord;
 import com.speakfit.backend.domain.script.exception.ScriptErrorCode;
 import com.speakfit.backend.domain.script.repository.ScriptRepository;
+import com.speakfit.backend.domain.script.service.ScriptContentParser;
 import com.speakfit.backend.domain.style.entity.SpeechStyle;
 import com.speakfit.backend.domain.style.repository.SpeechStyleRepository;
 import com.speakfit.backend.domain.user.entity.User;
@@ -28,6 +31,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -45,6 +49,7 @@ public class PracticeServiceImpl implements PracticeService {
     private final PracticeDetailRepository practiceDetailRepository;
     private final AiAnalysisService aiAnalysisService;
     private final PracticeTxService practiceTxService;
+    private final ScriptContentParser scriptContentParser;
 
     @Value("${app.websocket.base-url}")
     private String webSocketBaseUrl;
@@ -170,8 +175,21 @@ public class PracticeServiceImpl implements PracticeService {
         // 2. 연습 상태를 RECORDING으로 변경
         record.updateStatus(Status.RECORDING);
 
-        // 3. 실시간 분석을 위한 웹소켓 URL 및 대본 단어 리스트 구성
-        List<StartPracticeRes.ContentRes> contentList = parseMarkedContent(record.getScript().getMarkedContent());
+        // 3. 실시간 분석을 위한 웹소켓 URL 및 대본 문장/단어 리스트 구성
+        List<ScriptSentence> scriptSentences = getOrCreateScriptSentences(record.getScript());
+        List<StartPracticeRes.SentenceRes> sentences = toSentenceRes(scriptSentences);
+        List<StartPracticeRes.WordRes> scriptWords = sentences.stream()
+                .flatMap(sentence -> sentence.getWords().stream())
+                .sorted(Comparator.comparing(StartPracticeRes.WordRes::getGlobalWordIndex))
+                .toList();
+        List<StartPracticeRes.ContentRes> contentList = scriptWords.stream()
+                .map(word -> StartPracticeRes.ContentRes.builder()
+                        .index(word.getGlobalWordIndex())
+                        .word(word.getText())
+                        .hasBreak(false)
+                        .emphasis(false)
+                        .build())
+                .toList();
         String webSocketUrl = webSocketBaseUrl + record.getId();
 
         // 4. 시작 정보 반환
@@ -181,7 +199,55 @@ public class PracticeServiceImpl implements PracticeService {
                 .webSocketUrl(webSocketUrl)
                 .status(record.getStatus())
                 .contentList(contentList)
+                .sentences(sentences)
+                .scriptWords(scriptWords)
                 .createdAt(record.getCreatedAt())
+                .build();
+    }
+
+    // 저장된 대본 문장 데이터 조회 또는 백필 구현
+    private List<ScriptSentence> getOrCreateScriptSentences(Script script) {
+        if (script.getScriptSentences() == null || script.getScriptSentences().isEmpty()) {
+            List<ScriptSentence> parsedSentences = scriptContentParser.parse(script.getContent());
+            parsedSentences.forEach(script::addScriptSentence);
+            scriptRepository.saveAndFlush(script);
+        }
+
+        return script.getScriptSentences().stream()
+                .sorted(Comparator.comparing(ScriptSentence::getSentenceIndex))
+                .toList();
+    }
+
+    // 대본 문장 응답 변환 구현
+    private List<StartPracticeRes.SentenceRes> toSentenceRes(List<ScriptSentence> scriptSentences) {
+        return scriptSentences.stream()
+                .map(sentence -> StartPracticeRes.SentenceRes.builder()
+                        .scriptSentenceId(sentence.getId())
+                        .sentenceIndex(sentence.getSentenceIndex())
+                        .originalText(sentence.getOriginalText())
+                        .normalizedText(sentence.getNormalizedText())
+                        .startCharIndex(sentence.getStartCharIndex())
+                        .endCharIndex(sentence.getEndCharIndex())
+                        .words(sentence.getScriptWords().stream()
+                                .sorted(Comparator.comparing(ScriptWord::getSentenceWordIndex))
+                                .map(word -> toWordRes(sentence, word))
+                                .toList())
+                        .build())
+                .toList();
+    }
+
+    // 대본 단어 응답 변환 구현
+    private StartPracticeRes.WordRes toWordRes(ScriptSentence sentence, ScriptWord word) {
+        return StartPracticeRes.WordRes.builder()
+                .scriptWordId(word.getId())
+                .scriptSentenceId(sentence.getId())
+                .sentenceIndex(sentence.getSentenceIndex())
+                .globalWordIndex(word.getGlobalWordIndex())
+                .sentenceWordIndex(word.getSentenceWordIndex())
+                .text(word.getText())
+                .normalizedText(word.getNormalizedText())
+                .startCharIndex(word.getStartCharIndex())
+                .endCharIndex(word.getEndCharIndex())
                 .build();
     }
 
