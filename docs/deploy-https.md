@@ -9,7 +9,7 @@ https://speak-fit-fe.vercel.app
 The browser blocks calls from that HTTPS page to an HTTP API such as:
 
 ```text
-http://43.203.182.52
+http://<EC2_PUBLIC_IP>
 ```
 
 This is Mixed Content blocking. The request is blocked in the browser before it reaches Spring Boot, so changing only CORS or opening another Spring port does not fix it.
@@ -33,7 +33,7 @@ Spring Boot can continue to run on port `8080`. Port `443` should be handled by 
 1. Point a backend DNS record to the EC2 public IP.
 
 ```text
-api.speakfit.org A 43.203.182.52
+api.speakfit.org A <EC2_PUBLIC_IP>
 ```
 
 2. Open EC2 security group inbound rules.
@@ -106,7 +106,7 @@ Let's Encrypt and ACM generally require a DNS name, not a raw public IP. Until a
   "rewrites": [
     {
       "source": "/backend/:path*",
-      "destination": "http://43.203.182.52/:path*"
+      "destination": "http://<EC2_PUBLIC_IP>/:path*"
     }
   ]
 }
@@ -127,7 +127,7 @@ https://speak-fit-fe.vercel.app/backend/auth/login
 Vercel proxies that request to:
 
 ```text
-http://43.203.182.52/auth/login
+http://<EC2_PUBLIC_IP>/auth/login
 ```
 
 This avoids browser Mixed Content because the browser only talks to Vercel over HTTPS. It is a temporary workaround because traffic from Vercel to EC2 is still HTTP.
