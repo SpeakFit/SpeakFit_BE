@@ -18,8 +18,8 @@ public class CookieUtil {
         ResponseCookie cookie = ResponseCookie.from("refreshToken", refreshToken)
                 .httpOnly(true)
                 .secure(secure)
-                .path("/api/auth")
-                .sameSite("Lax")
+                .path("/")
+                .sameSite("None")
                 .maxAge(maxAgeSeconds)
                 .build();
 
@@ -30,9 +30,9 @@ public class CookieUtil {
 
         ResponseCookie cookie = ResponseCookie.from("refreshToken", "")
                 .httpOnly(true)
-                .secure(secure)   // ✅ 동일한 값
-                .path("/api/auth")
-                .sameSite("Lax")
+                .secure(secure)
+                .path("/")
+                .sameSite("None")
                 .maxAge(0)
                 .build();
 
