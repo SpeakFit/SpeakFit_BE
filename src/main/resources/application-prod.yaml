@@ -20,6 +20,9 @@ spring:
     open-in-view: false
 
 app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:https://speak-fit-fe.vercel.app}
+
   cookie:
     secure: true
 
