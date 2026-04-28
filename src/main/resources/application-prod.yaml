@@ -4,8 +4,29 @@ spring:
     activate:
       on-profile: prod
 
+  datasource:
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: false
+    show-sql: false
+    open-in-view: false
+
 app:
   cookie:
     secure: true
+
   websocket:
     base-url: ${WS_BASE_URL}
+
+jwt:
+  secret: ${JWT_SECRET}
+  access-token-expire-ms: ${JWT_ACCESS_TOKEN_EXPIRE_MS}
+  refresh-token-expire-ms: ${JWT_REFRESH_TOKEN_EXPIRE_MS}
