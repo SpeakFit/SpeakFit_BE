@@ -17,6 +17,18 @@ logging:
   level:
     root: info
 
+cloud:
+  aws:
+    credentials:
+      access-key: ${AWS_ACCESS_KEY}
+      secret-key: ${AWS_SECRET_KEY}
+    region:
+      static: ap-northeast-2
+    s3:
+      bucket: speakfit-images-bucket
+    stack:
+      auto: false
+
 app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,https://speak-fit-fe.vercel.app}
