@@ -69,7 +69,8 @@ sudo certbot --nginx -d api.speakfit.org
 6. Run the backend with production CORS.
 
 ```bash
-CORS_ALLOWED_ORIGINS=https://speak-fit-fe.vercel.app
+CORS_ALLOWED_ORIGINS=https://speak-fit-fe.vercel.app,http://localhost:5173
+CORS_ALLOWED_ORIGIN_PATTERNS=https://*.vercel.app
 SPRING_PROFILES_ACTIVE=prod
 ```
 
@@ -135,7 +136,8 @@ This avoids browser Mixed Content because the browser only talks to Vercel over 
 If using this proxy, add the Vercel frontend origin to backend CORS:
 
 ```bash
-CORS_ALLOWED_ORIGINS=https://speak-fit-fe.vercel.app
+CORS_ALLOWED_ORIGINS=https://speak-fit-fe.vercel.app,http://localhost:5173
+CORS_ALLOWED_ORIGIN_PATTERNS=https://*.vercel.app
 ```
 
 For production, prefer a real backend HTTPS endpoint.
