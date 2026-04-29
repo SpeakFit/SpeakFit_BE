@@ -18,7 +18,7 @@ jobs:
           key: ${{ secrets.EC2_KEY }}
           script: |
             cd ${{ secrets.EC2_PROJECT_PATH }}
-            git pull origin develop
+            git pull origin main
             chmod +x gradlew
             ./gradlew clean build -x test
             docker compose down
