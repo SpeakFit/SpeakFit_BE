@@ -1,94 +1,156 @@
 package com.speakfit.backend.domain.script.service;
 
 import com.speakfit.backend.domain.script.dto.req.AddScriptReq;
+import com.speakfit.backend.domain.script.dto.req.AiGenerateScriptReq;
+import com.speakfit.backend.domain.script.dto.req.AiUpdateScriptReq;
 import com.speakfit.backend.domain.script.dto.res.AddScriptRes;
+import com.speakfit.backend.domain.script.dto.res.AiGenerateScriptRes;
+import com.speakfit.backend.domain.script.dto.res.AiUpdateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
+import com.speakfit.backend.domain.script.dto.res.UploadPptRes;
 import com.speakfit.backend.domain.script.entity.Script;
+import com.speakfit.backend.domain.script.enums.PptStatus;
 import com.speakfit.backend.domain.script.enums.ScriptType;
 import com.speakfit.backend.domain.script.exception.ScriptErrorCode;
 import com.speakfit.backend.domain.script.repository.ScriptRepository;
-import com.speakfit.backend.domain.user.entity.User;
+import com.speakfit.backend.domain.practice.service.AiAnalysisService;
 import com.speakfit.backend.domain.user.repository.UserRepository;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.core.task.TaskRejectedException;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
+@Slf4j
 public class ScriptServiceImpl implements ScriptService {
 
     private final ScriptRepository scriptRepository;
+    private final com.speakfit.backend.domain.practice.repository.PracticeRepository practiceRepository;
+    private final AiAnalysisService aiAnalysisService;
+    private final ScriptTxService scriptTxService;
     private final UserRepository userRepository;
+    private final WebClient webClient;
+    private final PptConvertAsyncService pptConvertAsyncService;
 
-    // 발표 대본 추가 기능 서비스 구현
+    // 발표 대본 추가 기능 구현
     @Override
-    @Transactional
-    public AddScriptRes addScript(AddScriptReq.Request req, Long userId) {
+    public AddScriptRes.Response addScript(AddScriptReq.Request req, Long userId) {
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND));
+        if (!userRepository.existsById(userId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND);
+        }
 
-        // 1. dto -> entity 변환 (기본 타입을 TEXT로 설정)
-        Script script = Script.builder()
-                .title(req.getTitle())
-                .content(req.getContent())
-                .scriptType(ScriptType.TEXT) // 최신화된 엔티티 필드 반영
-                .user(user)
-                .build();
+        // AI를 통해 낭독 기호 대본 생성
+        String markedContent = aiAnalysisService.generateMarkedContent(req.getContent());
 
-        // 2. db 저장
-        Script savedScript = scriptRepository.save(script);
+        // AI 호출 실패 시 원본 대본 사용
+        if (markedContent == null || markedContent.isBlank()) {
+            markedContent = req.getContent();
+        }
 
-        // 3. entity -> res dto 변환 및 반환
-        return AddScriptRes.builder()
+        // 대본 정보 저장
+        Script savedScript = scriptTxService.saveScript(req, userId, markedContent);
+
+        // 낭독 기호 대본을 응답 형식으로 변환
+        List<AddScriptRes.ContentRes> contentList = parseMarkedContent(markedContent);
+
+        return AddScriptRes.Response.builder()
                 .id(savedScript.getId())
                 .title(savedScript.getTitle())
                 .content(savedScript.getContent())
+                .contentList(contentList)
                 .createdAt(savedScript.getCreatedAt())
                 .build();
     }
 
-    // 발표 대본 목록 조회 기능 서비스 구현
+    // 낭독 기호 대본 파싱 기능 구현
+    private List<AddScriptRes.ContentRes> parseMarkedContent(String markedContent) {
+        List<AddScriptRes.ContentRes> list = new ArrayList<>();
+
+        if (markedContent == null || markedContent.isEmpty()) {
+            return list;
+        }
+
+        String[] tokens = markedContent.split("\\s+");
+        int index = 0;
+
+        for (String token : tokens) {
+            // 단독 기호를 이전 단어의 속성으로 병합
+            if ((token.equals("/") || token.equals("*")) && !list.isEmpty()) {
+                AddScriptRes.ContentRes last = list.get(list.size() - 1);
+                list.set(list.size() - 1, AddScriptRes.ContentRes.builder()
+                        .index(last.getIndex())
+                        .word(last.getWord())
+                        .hasBreak(token.equals("/") || last.isHasBreak())
+                        .emphasis(token.equals("*") || last.isEmphasis())
+                        .build());
+                continue;
+            }
+
+            boolean hasBreak = token.contains("/");
+            boolean isEmphasis = token.contains("*");
+            String cleanWord = token.replace("/", "").replace("*", "");
+
+            if (!cleanWord.isEmpty()) {
+                list.add(AddScriptRes.ContentRes.builder()
+                        .index(index++)
+                        .word(cleanWord)
+                        .hasBreak(hasBreak)
+                        .emphasis(isEmphasis)
+                        .build());
+            }
+        }
+        return list;
+    }
+
+    // 발표 대본 목록 조회 기능 구현
     @Override
-    public List<GetScriptListRes> getScripts(Long userId) {
-
-
-        // 1. Repository에서 유저의 대본 리스트 가져오기
+    @Transactional(readOnly = true)
+    public List<GetScriptListRes.Response> getScripts(Long userId) {
         List<Script> scripts = scriptRepository.findAllByUserId(userId);
-
-        // 2. Entity리스트 -> dto리스트 변환 및 반환
         return scripts.stream()
-                .map(script -> GetScriptListRes.builder()
+                .map(script -> GetScriptListRes.Response.builder()
                         .id(script.getId())
                         .title(script.getTitle())
                         .content(script.getContent())
-                        .scriptType(script.getScriptType()) // 추가
+                        .scriptType(script.getScriptType())
                         .createdAt(script.getCreatedAt())
                         .build())
                 .toList();
-        }
+    }
 
-    // 발표 대본 상세 조회 기능 서비스 구현
+    // 발표 대본 상세 조회 기능 구현
     @Override
-    public GetScriptDetailRes getScript(Long scriptId, Long userId) {
-        // 1. DB에서 대본 찾기
-        Script script = scriptRepository.findById(scriptId)
+    @Transactional(readOnly = true)
+    public GetScriptDetailRes.Response getScript(Long scriptId, Long userId) {
+        Script script = scriptRepository.findByIdWithUser(scriptId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
 
-        // 2. 사용자 권한 체크 로직
         if (!script.getUser().getId().equals(userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
 
-        // 3. PPT 정보 구성 (PPT 타입일 때만)
+        PptStatus pptStatus = resolvePptStatus(script);
         GetScriptDetailRes.PptInfoRes pptInfo = null;
-        if (script.getScriptType() == ScriptType.PPT) {
+        if (script.getScriptType() == ScriptType.PPT && pptStatus == PptStatus.COMPLETED) {
             List<GetScriptDetailRes.PptSlideRes> slideResList = script.getPptSlides().stream()
                     .map(slide -> GetScriptDetailRes.PptSlideRes.builder()
                             .page(slide.getSlideIndex())
@@ -98,41 +160,246 @@ public class ScriptServiceImpl implements ScriptService {
 
             pptInfo = GetScriptDetailRes.PptInfoRes.builder()
                     .pptUrl(script.getPptUrl())
+                    .totalSlides(script.getTotalSlides())
                     .slides(slideResList)
                     .build();
         }
 
-        // 4. Entity -> DTO 변환 및 반환
-        return GetScriptDetailRes.builder()
+        return GetScriptDetailRes.Response.builder()
                 .id(script.getId())
                 .title(script.getTitle())
                 .content(script.getContent())
                 .markedContent(script.getMarkedContent())
                 .scriptType(script.getScriptType())
+                .pptStatus(pptStatus)
+                .pptErrorMessage(script.getPptErrorMessage())
                 .createdAt(script.getCreatedAt())
-                .pptInfo(pptInfo) // PPT가 없으면 null로 전달
+                .pptInfo(pptInfo)
                 .build();
     }
 
-    // 발표 대본 삭제 기능 서비스 구현
+    // 발표 대본 삭제 기능 구현
     @Override
     @Transactional
-    public DeleteScriptRes deleteScript(Long scriptId, Long userId) {
-        // 1. DB에서 대본 찾기
-        Script script = scriptRepository.findById(scriptId)
+    public DeleteScriptRes.Response deleteScript(Long scriptId, Long userId) {
+        Script script = scriptRepository.findByIdWithUser(scriptId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
 
-        // 2. 사용자 권한 체크
         if (!script.getUser().getId().equals(userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
         }
 
-        // 3. 삭제 처리
-        scriptRepository.delete(script);
+        // 연관된 연습 기록 먼저 삭제 (외래 키 제약 조건 해결)
+        practiceRepository.deleteAllByScriptId(scriptId);
 
-        // 4. 삭제된 ID 반환
-        return DeleteScriptRes.builder()
+        scriptRepository.delete(script);
+        deleteDirectoryQuietly(Paths.get("uploads/ppt/" + scriptId).toAbsolutePath().normalize());
+        return DeleteScriptRes.Response.builder()
                 .id(scriptId)
                 .build();
     }
+
+    // AI 발표 대본 초안 생성 기능 구현
+    @Override
+    public AiGenerateScriptRes.Response generateScript(AiGenerateScriptReq.Request req, Long userId) {
+        if (!userRepository.existsById(userId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND);
+        }
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("topic", req.getTopic());
+        body.put("time", req.getTime());
+        body.put("audienceAge", req.getAudienceAge().name());
+        body.put("audienceLevel", req.getAudienceLevel().name());
+        body.put("speechType", req.getSpeechType().name());
+        body.put("purpose", req.getPurpose());
+        body.put("keywords", req.getKeywords());
+
+        try {
+            AiGenerateScriptRes.Response response = webClient.post()
+                    .uri("/scripts/generate")
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(AiGenerateScriptRes.Response.class)
+                    .block();
+
+            if (response == null || response.getGeneratedScript() == null || response.getGeneratedScript().isBlank()) {
+                throw new CustomException(ScriptErrorCode.SCRIPT_AI_GENERATE_FAILED);
+            }
+
+            return response;
+        } catch (CustomException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("AI 발표 대본 생성 실패 - userId: {}, topic: {}", userId, req.getTopic(), e);
+            throw new CustomException(ScriptErrorCode.SCRIPT_AI_GENERATE_FAILED);
+        }
+    }
+
+    // AI 발표 대본 최적화 기능 구현
+    @Override
+    public AiUpdateScriptRes.Response updateScript(AiUpdateScriptReq.Request req, Long userId) {
+        if (!userRepository.existsById(userId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND);
+        }
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("topic", req.getTopic());
+        body.put("content", req.getContent());
+        body.put("time", req.getTime());
+        body.put("audienceAge", req.getAudienceAge().name());
+        body.put("audienceLevel", req.getAudienceLevel().name());
+        body.put("speechType", req.getSpeechType().name());
+        body.put("purpose", req.getPurpose());
+        body.put("keywords", req.getKeywords());
+
+        try {
+            AiUpdateScriptRes.Response response = webClient.post()
+                    .uri("/scripts/update")
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(AiUpdateScriptRes.Response.class)
+                    .block();
+
+            if (response == null || response.getOptimizedScript() == null || response.getOptimizedScript().isBlank()) {
+                throw new CustomException(ScriptErrorCode.SCRIPT_AI_UPDATE_FAILED);
+            }
+
+            return response;
+        } catch (CustomException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("AI 발표 대본 최적화 실패 - userId: {}, topic: {}", userId, req.getTopic(), e);
+            throw new CustomException(ScriptErrorCode.SCRIPT_AI_UPDATE_FAILED);
+        }
+    }
+
+    // PPT 파일 업로드 및 슬라이드 변환 기능 구현
+    @Override
+    public UploadPptRes.Response uploadPpt(Long scriptId, MultipartFile file, Long userId) {
+        Script script = scriptRepository.findByIdWithUser(scriptId)
+                .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
+
+        if (!script.getUser().getId().equals(userId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
+        }
+
+        if (resolvePptStatus(script) == PptStatus.PROCESSING) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_ALREADY_PROCESSING);
+        }
+
+        String previousPptUrl = script.getPptUrl();
+        Path uploadDirPath = getPptAttemptDirPath(scriptId);
+        boolean processingMarked = false;
+
+        try {
+            String sourcePptUrl = savePptFile(scriptId, file, uploadDirPath);
+            scriptTxService.markPptProcessing(scriptId, userId);
+            processingMarked = true;
+            try {
+                pptConvertAsyncService.convertPptAsync(scriptId, userId, sourcePptUrl, uploadDirPath, previousPptUrl);
+            } catch (TaskRejectedException e) {
+                deleteDirectoryQuietly(uploadDirPath);
+                scriptTxService.markPptFailed(scriptId, userId, "PPT conversion queue is full.");
+                throw new CustomException(ScriptErrorCode.SCRIPT_PPT_CONVERT_FAILED);
+            }
+
+            return UploadPptRes.Response.builder()
+                    .scriptId(scriptId)
+                    .pptStatus(PptStatus.PROCESSING)
+                    .message("PPT 변환을 시작했습니다.")
+                    .build();
+        } catch (CustomException e) {
+            deleteDirectoryQuietly(uploadDirPath);
+            throw e;
+        } catch (Exception e) {
+            deleteDirectoryQuietly(uploadDirPath);
+            if (processingMarked) {
+                scriptTxService.markPptFailed(scriptId, userId, "PPT conversion task could not be started.");
+            }
+            log.error("PPT 업로드 처리 실패 - scriptId: {}", scriptId, e);
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_CONVERT_FAILED);
+        }
+    }
+
+    // PPT 파일 저장 기능 구현
+    private String savePptFile(Long scriptId, MultipartFile file, Path uploadDirPath) {
+        if (file == null || file.isEmpty()) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_EMPTY_FILE);
+        }
+
+        String extension = getPptFileExtension(file.getOriginalFilename());
+        if (!extension.equals(".ppt") && !extension.equals(".pptx")) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_INVALID_EXTENSION);
+        }
+
+        try {
+            if (!Files.exists(uploadDirPath)) {
+                Files.createDirectories(uploadDirPath);
+            }
+
+            Path filePath = uploadDirPath.resolve("source" + extension).normalize();
+            Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
+            return filePath.toString();
+        } catch (Exception e) {
+            log.error("PPT 파일 저장 실패 - scriptId: {}", scriptId, e);
+            throw new CustomException(ScriptErrorCode.SCRIPT_PPT_UPLOAD_FAILED);
+        }
+    }
+
+    // PPT 파일 확장자 추출 기능 구현
+    private String getPptFileExtension(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return "";
+        }
+
+        String cleanFileName = Paths.get(fileName).getFileName().toString();
+        int dotIndex = cleanFileName.lastIndexOf(".");
+        if (dotIndex < 0) {
+            return "";
+        }
+
+        return cleanFileName.substring(dotIndex).toLowerCase();
+    }
+
+    // PPT 변환 출력 디렉터리 경로 생성 기능 구현
+    private Path getPptAttemptDirPath(Long scriptId) {
+        return Paths.get("uploads/ppt/" + scriptId + "/attempts/" + UUID.randomUUID()).toAbsolutePath().normalize();
+    }
+
+    // PPT 변환 상태 확인 기능 구현
+    private PptStatus resolvePptStatus(Script script) {
+        if (script.getPptStatus() != null) {
+            return script.getPptStatus();
+        }
+
+        if (script.getScriptType() == ScriptType.PPT && script.getPptUrl() != null) {
+            return PptStatus.COMPLETED;
+        }
+
+        return PptStatus.NONE;
+    }
+
+    // 디렉터리 삭제 기능 구현
+    private void deleteDirectoryQuietly(Path directoryPath) {
+        if (directoryPath == null || !Files.exists(directoryPath)) {
+            return;
+        }
+
+        try {
+            try (var paths = Files.walk(directoryPath)) {
+                paths.sorted(Comparator.reverseOrder())
+                        .forEach(path -> {
+                            try {
+                                Files.deleteIfExists(path);
+                            } catch (Exception e) {
+                                log.warn("파일 정리 실패 - path: {}", path, e);
+                            }
+                        });
+            }
+        } catch (Exception e) {
+            log.warn("PPT 업로드 임시 디렉터리 정리 실패 - path: {}", directoryPath, e);
+        }
+    }
+
 }

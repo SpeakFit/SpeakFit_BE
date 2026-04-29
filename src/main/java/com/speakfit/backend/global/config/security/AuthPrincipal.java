@@ -7,5 +7,5 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class AuthPrincipal {
     private final Long userId;      // 멤버 아이디
-    private final String usersId;   // 로그인 아이디
+    private final String email;     // 로그인 이메일
 }

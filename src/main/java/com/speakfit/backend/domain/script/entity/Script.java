@@ -1,10 +1,30 @@
 package com.speakfit.backend.domain.script.entity;
 
+import com.speakfit.backend.domain.script.enums.PptStatus;
 import com.speakfit.backend.domain.script.enums.ScriptType;
 import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.global.entity.BaseEntity;
-import jakarta.persistence.*;
-import lombok.*;
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,10 +66,22 @@ public class Script extends BaseEntity {
     private Integer totalSlides;
 
     @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ppt_status")
+    private PptStatus pptStatus = PptStatus.NONE;
+
+    @Column(name = "ppt_error_message", columnDefinition = "TEXT")
+    private String pptErrorMessage;
+
+    @Builder.Default
     @OneToMany(mappedBy = "script", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<PptSlide> pptSlides = new ArrayList<>();
 
-    // 연관관계 편의 메서드
+    @Builder.Default
+    @OneToMany(mappedBy = "script", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ScriptSentence> scriptSentences = new ArrayList<>();
+
+    // PPT 슬라이드 연관관계 추가 구현
     public void addPptSlide(PptSlide pptSlide) {
         this.pptSlides.add(pptSlide);
         if (pptSlide.getScript() != this) {
@@ -57,8 +89,47 @@ public class Script extends BaseEntity {
         }
     }
 
-    // 낭독 기호 대본 업데이트 메서드
+    // 대본 문장 연관관계 추가 구현
+    public void addScriptSentence(ScriptSentence scriptSentence) {
+        this.scriptSentences.add(scriptSentence);
+        if (scriptSentence.getScript() != this) {
+            scriptSentence.setScript(this);
+        }
+    }
+
+    // 대본 문장 연관관계 초기화 구현
+    public void clearScriptSentences() {
+        this.scriptSentences.clear();
+    }
+
     public void updateMarkedContent(String markedContent) {
         this.markedContent = markedContent;
+    }
+
+    public void updatePptInfo(String pptUrl, Integer totalSlides) {
+        this.scriptType = ScriptType.PPT;
+        this.pptUrl = pptUrl;
+        this.totalSlides = totalSlides;
+        this.pptStatus = PptStatus.COMPLETED;
+        this.pptErrorMessage = null;
+        this.pptSlides.clear();
+    }
+
+    public void markPptProcessing() {
+        this.pptStatus = PptStatus.PROCESSING;
+        this.pptErrorMessage = null;
+    }
+
+    public void markPptFailed(String errorMessage) {
+        this.pptStatus = PptStatus.FAILED;
+        this.pptErrorMessage = errorMessage;
+    }
+
+    @PrePersist
+    @PostLoad
+    private void normalizePptStatus() {
+        if (this.pptStatus == null) {
+            this.pptStatus = this.pptUrl != null ? PptStatus.COMPLETED : PptStatus.NONE;
+        }
     }
 }

@@ -8,11 +8,10 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum SuccessCode implements BaseCode {
 
-    OK(HttpStatus.OK, "COMMON200", "성공적으로 요청을 처리했습니다."),
-    PHONE_CODE_SENT(HttpStatus.OK, "COMMON200_2", "인증번호를 발송했습니다."),
-    PHONE_VERIFIED(HttpStatus.OK, "COMMON200_3", "전화번호 인증이 완료되었습니다."),
-    CREATED(HttpStatus.CREATED,"COMMON201", "성공적으로 생성되었습니다."),
-    NO_CONTENT(HttpStatus.NO_CONTENT, "COMMON204", "성공적으로 처리되었습니다.");
+    OK(HttpStatus.OK, "COMMON200", "요청이 성공적으로 처리되었습니다."),
+    CREATED(HttpStatus.CREATED, "COMMON201", "리소스가 성공적으로 생성되었습니다."),
+    ACCEPTED(HttpStatus.ACCEPTED, "COMMON202", "요청이 접수되어 처리 중입니다."),
+    NO_CONTENT(HttpStatus.NO_CONTENT, "COMMON204", "처리는 성공했지만 반환할 내용이 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;

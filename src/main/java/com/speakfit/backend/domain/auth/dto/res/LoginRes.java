@@ -5,8 +5,6 @@ import com.speakfit.backend.domain.user.entity.User;
 import lombok.Builder;
 import lombok.Getter;
 
-import java.time.LocalDate;
-
 @Getter
 @Builder
 public class LoginRes {
@@ -24,26 +22,20 @@ public class LoginRes {
     @Builder
     public static class UserInfo{
         private Long userId;
-        private String usersId;
-        private String name;
+        private String email;
         private String nickname;
-        private String phoneNum;
-        private LocalDate birth;
+        private String birthday;
         private String gender;
         private String dialect;
-        private Long styleId;
 
         public static UserInfo from(User user){
             return UserInfo.builder()
                     .userId(user.getId())
-                    .usersId(user.getUsersId())
-                    .name(user.getName())
+                    .email(user.getEmail())
                     .nickname(user.getNickname())
-                    .phoneNum(user.getPhoneNum())
-                    .birth(user.getBirth())
+                    .birthday(user.getBirthday())
                     .gender(user.getGender().name())
                     .dialect(user.getDialect().name())
-                    .styleId(user.getStyle().getId())
                     .build();
         }
     }

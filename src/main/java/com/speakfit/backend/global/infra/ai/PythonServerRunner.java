@@ -17,7 +17,8 @@ public class PythonServerRunner implements ApplicationRunner {
 
     // 경로 상수 정의
     private static final String PY_DIR = "python-analysis-server";
-    private static final String PY_SCRIPT = "main.py";
+    private static final String PY_MAIN_MODULE = "app.main";
+    private static final String PY_MAIN_FILE = "app/main.py";
     private static final String REQUIREMENTS = "requirements.txt";
     private static final String VENV_DIR = "venv";
 
@@ -101,16 +102,17 @@ public class PythonServerRunner implements ApplicationRunner {
     // [3단계] 서버 실행
     private void startPythonServer() {
         try {
-            File scriptFile = new File(PY_DIR, PY_SCRIPT);
-            if (!scriptFile.exists()) {
-                System.err.println("[Python] 실행 파일 없음: " + scriptFile.getAbsolutePath());
+            File mainFile = new File(PY_DIR, PY_MAIN_FILE);
+            if (!mainFile.exists()) {
+                System.err.println("[Python] 실행 파일 없음: " + mainFile.getAbsolutePath());
                 return;
             }
 
             String pythonExe = getPythonExecutable();
             System.out.println("[Python] 분석 서버 실행 중... (" + pythonExe + ")");
 
-            ProcessBuilder pb = new ProcessBuilder(pythonExe, PY_SCRIPT);
+            // 모듈 방식 실행: python -m app.main
+            ProcessBuilder pb = new ProcessBuilder(pythonExe, "-m", PY_MAIN_MODULE);
             pb.directory(new File(PY_DIR));
             pb.redirectErrorStream(true);
 

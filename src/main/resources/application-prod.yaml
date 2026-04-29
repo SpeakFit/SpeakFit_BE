@@ -4,8 +4,32 @@ spring:
     activate:
       on-profile: prod
 
+  datasource:
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: false
+    show-sql: false
+    open-in-view: false
+
 app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:https://speak-fit-fe.vercel.app}
+
   cookie:
     secure: true
+
   websocket:
     base-url: ${WS_BASE_URL}
+
+jwt:
+  secret: ${JWT_SECRET}
+  access-token-exp-seconds: ${JWT_ACCESS_TOKEN_EXP_SECONDS}
+  refresh-token-exp-seconds: ${JWT_REFRESH_TOKEN_EXP_SECONDS}

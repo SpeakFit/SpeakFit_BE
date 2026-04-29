@@ -9,6 +9,6 @@ import lombok.Getter;
 @AllArgsConstructor
 public class SignUpRes {
     private Long userId;
-    private String usersId;
+    private String email;
     private String nickname;
 }

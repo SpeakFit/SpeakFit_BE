@@ -4,13 +4,37 @@ spring:
 
   jackson:
     time-zone: Asia/Seoul
+    json:
+      read:
+        allow-unescaped-control-chars: true
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
 
 logging:
   level:
     root: info
 
+cloud:
+  aws:
+    credentials:
+      access-key: ${AWS_ACCESS_KEY}
+      secret-key: ${AWS_SECRET_KEY}
+    region:
+      static: ap-northeast-2
+    s3:
+      bucket: ${AWS_S3_BUCKET}
+    stack:
+      auto: false
+
 app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,https://speak-fit-fe.vercel.app}
   cookie:
     secure: false
+  ai:
+    base-url: ${AI_BASE_URL:http://localhost:5000}
   websocket:
-    base-url: ${WS_BASE_URL:ws://localhost:8080/ws/practice/}
+    base-url: ${WS_BASE_URL:ws://localhost:5000/ws/practice/}
