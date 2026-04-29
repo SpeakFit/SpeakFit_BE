@@ -19,6 +19,7 @@ import com.speakfit.backend.domain.style.repository.SpeechStyleRepository;
 import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.domain.user.repository.UserRepository;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
+import com.speakfit.backend.global.infra.jwt.JwtProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -26,6 +27,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -51,6 +54,7 @@ public class PracticeServiceImpl implements PracticeService {
     private final AiAnalysisService aiAnalysisService;
     private final PracticeTxService practiceTxService;
     private final ScriptContentParser scriptContentParser;
+    private final JwtProvider jwtProvider;
 
     @Value("${app.websocket.base-url}")
     private String webSocketBaseUrl;
@@ -191,7 +195,9 @@ public class PracticeServiceImpl implements PracticeService {
                         .emphasis(false)
                         .build())
                 .toList();
-        String webSocketUrl = webSocketBaseUrl + record.getId();
+        String webSocketToken = jwtProvider.createPracticeWebSocketToken(userId, record.getId());
+        String webSocketUrl = webSocketBaseUrl + record.getId()
+                + "?token=" + URLEncoder.encode(webSocketToken, StandardCharsets.UTF_8);
 
         // 4. 시작 정보 반환
         return StartPracticeRes.Response.builder()

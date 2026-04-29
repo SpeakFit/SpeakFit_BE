@@ -13,10 +13,11 @@ import java.time.Duration;
 public class WebClientConfig {
 
     @Bean
-    public WebClient webClient(@Value("${app.ai.base-url}") String aiBaseUrl) {
+    public WebClient webClient(@Value("${app.ai.base-url}") String aiBaseUrl,
+                               @Value("${app.ai.response-timeout-seconds}") long responseTimeoutSeconds) {
         // 1. 타임아웃 설정 (120초)
         HttpClient httpClient = HttpClient.create()
-                .responseTimeout(Duration.ofSeconds(120));
+                .responseTimeout(Duration.ofSeconds(responseTimeoutSeconds));
 
         // 2. Base URL 설정
         return WebClient.builder()

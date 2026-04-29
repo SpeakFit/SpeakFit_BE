@@ -3,6 +3,8 @@ package com.speakfit.backend.domain.practice.enums;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
+import java.util.Locale;
+
 @Getter
 @RequiredArgsConstructor
 public enum PracticeIssueType {
@@ -16,4 +18,25 @@ public enum PracticeIssueType {
     LOW_SCORE("낮은 문장 점수");
 
     private final String description;
+
+    // Python 응답 이슈 유형 문자열을 안전하게 PracticeIssueType으로 변환
+    public static PracticeIssueType fromString(String value, PracticeIssueType defaultType) {
+        if (value == null || value.isBlank()) {
+            return defaultType;
+        }
+
+        String normalizedValue = value.trim()
+                .replaceAll("([a-z])([A-Z])", "$1_$2")
+                .replace("-", "_")
+                .replace(" ", "_")
+                .toUpperCase(Locale.ROOT);
+
+        for (PracticeIssueType type : values()) {
+            if (type.name().equals(normalizedValue)) {
+                return type;
+            }
+        }
+
+        return defaultType;
+    }
 }

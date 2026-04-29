@@ -1,6 +1,24 @@
 import librosa
 import numpy as np
-from app.utils.helpers import clamp
+from difflib import SequenceMatcher
+from app.utils.helpers import clamp, normalize_match_text
+
+MIN_STT_CONFIDENCE = 0.1
+MATCH_THRESHOLD = 0.72
+SHORT_WORD_MATCH_THRESHOLD = 0.9
+PRONUNCIATION_SCORE_THRESHOLD = 0.72
+LOW_PRONUNCIATION_THRESHOLD = 0.68
+ALIGNMENT_LOOKAHEAD = 8
+TARGET_WPM = 130
+FAST_WPM_THRESHOLD = 170
+SLOW_WPM_THRESHOLD = 80
+LONG_PAUSE_GAP_MS = 700
+MIN_WORD_DURATION_MS = 300
+ISSUE_LIMIT = 5
+LOW_CONFIDENCE_THRESHOLD = 0.7
+LOW_SCORE_THRESHOLD = 70
+SKIPPED_RATIO_THRESHOLD = 0.15
+MISMATCH_RATIO_THRESHOLD = 0.15
 
 def analyze_voice_features(file_path):
     """오디오 파일에서 정량적 특징 추출 (Librosa 사용)"""
@@ -45,7 +63,9 @@ def analyze_voice_features(file_path):
             "pauseCount": int(pause_count)
         }
     except Exception as e:
-        print(f"[Python] 음성 분석 중 오류: {e}")
+        import traceback
+        print(f"[Python] 음성 분석 중 치명적 오류 발생:")
+        traceback.print_exc()
         return None
 
 def build_word_results(script_words, duration_sec):
@@ -53,25 +73,131 @@ def build_word_results(script_words, duration_sec):
     if not script_words:
         return []
 
-    duration_ms = max(int(duration_sec * 1000), len(script_words) * 200)
-    slot_ms = max(int(duration_ms / len(script_words)), 1)
-    word_results = []
+    return build_skipped_word_results(script_words)
 
-    for index, word in enumerate(script_words):
-        start_ms = index * slot_ms
-        end_ms = duration_ms if index == len(script_words) - 1 else min((index + 1) * slot_ms, duration_ms)
-        confidence = round(clamp(0.92 - (index % 7) * 0.03, 0.65, 0.95), 2)
-        word_results.append({
-            "wordIndex": word.globalWordIndex,
-            "globalWordIndex": word.globalWordIndex,
-            "sentenceWordIndex": word.sentenceWordIndex,
-            "startMs": start_ms,
-            "endMs": end_ms,
-            "confidence": confidence,
-            "skipped": False,
-            "status": "NORMAL"
-        })
+def build_aligned_word_results(script_words, stt_words):
+    """STT 단어 타임스탬프를 대본 단어 순서에 맞춰 정렬합니다."""
+    if not script_words:
+        return []
+
+    usable_stt_words = [
+        word for word in stt_words
+        if normalize_match_text(word.get("word")) and float(word.get("confidence") or 0.0) >= MIN_STT_CONFIDENCE
+    ]
+    if not usable_stt_words:
+        return build_skipped_word_results(script_words)
+
+    word_results = []
+    stt_index = 0
+    matched_count = 0
+
+    for script_word in script_words:
+        match = find_best_stt_match(script_word, usable_stt_words, stt_index)
+        if match:
+            matched_word_index, matched_word, similarity = match
+            word_results.append(to_matched_word_result(script_word, matched_word, similarity))
+            stt_index = matched_word_index + 1
+            matched_count += 1
+        else:
+            word_results.append(to_skipped_word_result(script_word))
+
+    print(
+        "[Python] 단어 alignment 완료: "
+        f"scriptWords={len(script_words)}, sttWords={len(usable_stt_words)}, matched={matched_count}"
+    )
     return word_results
+
+def build_skipped_word_results(script_words):
+    return [to_skipped_word_result(word) for word in script_words]
+
+def find_best_stt_match(script_word, stt_words, start_index):
+    script_text = normalize_match_text(script_word.normalizedText or script_word.text)
+    if not script_text:
+        return None
+
+    end_index = min(len(stt_words), start_index + ALIGNMENT_LOOKAHEAD)
+    best_match = None
+    best_score = 0.0
+
+    for index in range(start_index, end_index):
+        spoken_text = normalize_match_text(stt_words[index].get("word"))
+        similarity = calculate_word_similarity(script_text, spoken_text)
+        confidence = normalize_stt_confidence(stt_words[index].get("confidence"))
+        order_penalty = (index - start_index) * 0.03
+        score = similarity * 0.8 + confidence * 0.2 - order_penalty
+        if score > best_score:
+            best_score = score
+            best_match = (index, stt_words[index], similarity)
+
+    threshold = SHORT_WORD_MATCH_THRESHOLD if len(script_text) <= 2 else MATCH_THRESHOLD
+    if best_match and best_match[2] >= threshold:
+        return best_match
+
+    return None
+
+def calculate_word_similarity(script_text, spoken_text):
+    if not script_text or not spoken_text:
+        return 0.0
+    if script_text == spoken_text:
+        return 1.0
+    if len(script_text) > 2 and (script_text in spoken_text or spoken_text in script_text):
+        return 0.86
+
+    return SequenceMatcher(None, script_text, spoken_text).ratio()
+
+def to_matched_word_result(script_word, stt_word, similarity):
+    stt_confidence = normalize_stt_confidence(stt_word.get("confidence"))
+    pronunciation_score = calculate_pronunciation_score(similarity, stt_confidence)
+    status = resolve_word_status(script_word, similarity, pronunciation_score)
+    return {
+        "scriptWordId": script_word.scriptWordId,
+        "wordIndex": script_word.globalWordIndex,
+        "globalWordIndex": script_word.globalWordIndex,
+        "sentenceWordIndex": script_word.sentenceWordIndex,
+        "scriptText": script_word.text,
+        "spokenText": stt_word.get("word"),
+        "startMs": stt_word.get("startMs"),
+        "endMs": stt_word.get("endMs"),
+        "confidence": round(pronunciation_score, 2),
+        "skipped": False,
+        "status": status
+    }
+
+def calculate_pronunciation_score(similarity, stt_confidence):
+    """Estimate word quality from script similarity and STT confidence."""
+    return clamp(similarity * 0.65 + stt_confidence * 0.35, 0.0, 1.0)
+
+def normalize_stt_confidence(confidence):
+    confidence = float(confidence or 0.0)
+    if confidence <= 0:
+        return 0.75
+
+    return clamp(confidence, 0.0, 1.0)
+
+def resolve_word_status(script_word, similarity, pronunciation_score):
+    script_text = normalize_match_text(script_word.normalizedText or script_word.text)
+    similarity_threshold = SHORT_WORD_MATCH_THRESHOLD if len(script_text) <= 2 else MATCH_THRESHOLD
+    if similarity < similarity_threshold:
+        return "MISMATCH"
+    if pronunciation_score < PRONUNCIATION_SCORE_THRESHOLD:
+        return "MISMATCH"
+
+    return "NORMAL"
+
+def to_skipped_word_result(script_word):
+    return {
+        "scriptWordId": script_word.scriptWordId,
+        "wordIndex": script_word.globalWordIndex,
+        "globalWordIndex": script_word.globalWordIndex,
+        "sentenceWordIndex": script_word.sentenceWordIndex,
+        "scriptText": script_word.text,
+        "spokenText": None,
+        "startMs": None,
+        "endMs": None,
+        "confidence": 0.0,
+        "skipped": True,
+        "status": "MISMATCH"
+    }
 
 def group_words_by_sentence(script_words):
     """대본 단어를 문장 단위로 묶습니다."""
@@ -85,12 +211,14 @@ def group_words_by_sentence(script_words):
         sentence["words"].append(word)
     return [sentence_map[key] for key in sorted(sentence_map.keys())]
 
-def resolve_sentence_status(wpm, avg_confidence, skipped_word_count):
-    if skipped_word_count > 0 or avg_confidence < 0.7:
+def resolve_sentence_status(wpm, avg_confidence, skipped_word_count, mismatch_word_count):
+    if skipped_word_count > 0 or mismatch_word_count > 0 or avg_confidence < 0.7:
         return "MISMATCH"
-    if wpm > 170:
+    if wpm is None:
+        return "MISMATCH"
+    if wpm > FAST_WPM_THRESHOLD:
         return "FAST"
-    if wpm < 80:
+    if wpm < SLOW_WPM_THRESHOLD:
         return "SLOW"
     return "NORMAL"
 
@@ -106,14 +234,21 @@ def build_sentence_results(script_words, word_results, features):
         related_results = [word_result_map[w.globalWordIndex] for w in words if w.globalWordIndex in word_result_map]
         if not related_results: continue
 
-        start_ms = min(r["startMs"] for r in related_results)
-        end_ms = max(r["endMs"] for r in related_results)
-        duration_min = max((end_ms - start_ms) / 60000, 0.001)
-        wpm = len(words) / duration_min
-        avg_confidence = sum(r["confidence"] for r in related_results) / len(related_results)
+        timed_results = get_timed_word_results(related_results)
+        start_ms, end_ms = resolve_sentence_time_range(timed_results)
+        wpm = calculate_sentence_wpm(len(words), start_ms, end_ms)
+        pause_duration_ms = calculate_sentence_pause_duration(timed_results)
+        avg_confidence = calculate_average_confidence(related_results)
         skipped_word_count = sum(1 for r in related_results if r["skipped"])
-        score = clamp(avg_confidence * 100 - abs(wpm - 130) * 0.08 - skipped_word_count * 8, 0, 100)
-        pause_duration_ms = int(features.get("pauseRatio", 0.0) * (end_ms - start_ms))
+        mismatch_word_count = sum(1 for r in related_results if r.get("status") == "MISMATCH" and not r["skipped"])
+        score = calculate_sentence_score(
+            word_count=len(words),
+            avg_confidence=avg_confidence,
+            skipped_word_count=skipped_word_count,
+            mismatch_word_count=mismatch_word_count,
+            wpm=wpm,
+            pause_duration_ms=pause_duration_ms,
+        )
 
         sentence_results.append({
             "scriptSentenceId": sentence["scriptSentenceId"],
@@ -122,56 +257,202 @@ def build_sentence_results(script_words, word_results, features):
             "endMs": end_ms,
             "wordCount": len(words),
             "skippedWordCount": skipped_word_count,
-            "wpm": round(float(wpm), 2),
+            "mismatchWordCount": mismatch_word_count,
+            "wpm": round(float(wpm), 2) if wpm is not None else None,
             "pauseDurationMs": pause_duration_ms,
             "avgPitch": features.get("avgPitch", 0.0),
             "avgIntensity": features.get("avgIntensity", 0.0),
             "score": round(float(score), 2),
-            "status": resolve_sentence_status(wpm, avg_confidence, skipped_word_count)
+            "status": resolve_sentence_status(wpm, avg_confidence, skipped_word_count, mismatch_word_count)
         })
     return sentence_results
 
+def get_timed_word_results(word_results):
+    return sorted(
+        [r for r in word_results if r.get("startMs") is not None and r.get("endMs") is not None],
+        key=lambda r: r["startMs"]
+    )
+
+def resolve_sentence_time_range(timed_results):
+    if not timed_results:
+        return None, None
+
+    return timed_results[0]["startMs"], max(r["endMs"] for r in timed_results)
+
+def calculate_sentence_wpm(word_count, start_ms, end_ms):
+    if start_ms is None or end_ms is None or end_ms <= start_ms:
+        return None
+
+    min_duration_ms = max(word_count, 1) * MIN_WORD_DURATION_MS
+    duration_ms = max(end_ms - start_ms, min_duration_ms)
+    duration_min = duration_ms / 60000
+    return word_count / duration_min
+
+def calculate_sentence_pause_duration(timed_results):
+    if len(timed_results) < 2:
+        return 0 if timed_results else None
+
+    pause_duration_ms = 0
+    previous_end_ms = timed_results[0]["endMs"]
+    for result in timed_results[1:]:
+        gap_ms = result["startMs"] - previous_end_ms
+        if gap_ms > LONG_PAUSE_GAP_MS:
+            pause_duration_ms += gap_ms
+        previous_end_ms = max(previous_end_ms, result["endMs"])
+
+    return pause_duration_ms
+
+def calculate_average_confidence(word_results):
+    if not word_results:
+        return 0.0
+
+    return sum(float(r.get("confidence") or 0.0) for r in word_results) / len(word_results)
+
+def calculate_sentence_score(word_count, avg_confidence, skipped_word_count, mismatch_word_count, wpm, pause_duration_ms):
+    if word_count <= 0:
+        return 0.0
+
+    skipped_ratio = skipped_word_count / word_count
+    mismatch_ratio = mismatch_word_count / word_count
+    speed_penalty = min(abs(wpm - TARGET_WPM) * 0.08, 18) if wpm is not None else 18
+    pause_penalty = min((pause_duration_ms or 0) / 1000 * 4, 12)
+
+    score = (
+        avg_confidence * 100
+        - skipped_ratio * 50
+        - mismatch_ratio * 35
+        - speed_penalty
+        - pause_penalty
+    )
+    return clamp(score, 0, 100)
+
 def build_issue_results(sentence_results):
+    candidates = []
+    for sentence in sentence_results:
+        candidates.extend(build_sentence_issue_candidates(sentence))
+
+    ranked_candidates = sorted(
+        candidates,
+        key=lambda issue: (-issue["severity"], issue.get("score") if issue.get("score") is not None else 100.0)
+    )
+
     issues = []
-    ranked = sorted(sentence_results, key=lambda x: x.get("score", 100.0))
+    seen_keys = set()
+    for candidate in ranked_candidates:
+        dedupe_key = (candidate.get("sentenceIndex"), candidate.get("issueType"))
+        if dedupe_key in seen_keys:
+            continue
 
-    summaries = {
-        "SKIPPED_WORDS": "일부 단어가 누락되었습니다.",
-        "TOO_FAST": "문장 발화 속도가 빠릅니다.",
-        "TOO_SLOW": "문장 발화 속도가 느립니다.",
-        "LONG_PAUSE": "문장 안의 쉼이 깁니다.",
-        "LOW_SCORE": "문장 점수가 낮습니다.",
-        "LOW_CONFIDENCE": "발화 신뢰도가 낮습니다."
+        candidate["displayOrder"] = len(issues)
+        issues.append(candidate)
+        seen_keys.add(dedupe_key)
+        if len(issues) >= ISSUE_LIMIT:
+            break
+
+    return [{key: value for key, value in issue.items() if key != "severity"} for issue in issues]
+
+def build_sentence_issue_candidates(sentence):
+    candidates = []
+    word_count = max(sentence.get("wordCount") or 0, 1)
+    skipped_count = sentence.get("skippedWordCount") or 0
+    mismatch_count = sentence.get("mismatchWordCount") or 0
+    skipped_ratio = skipped_count / word_count
+    mismatch_ratio = mismatch_count / word_count
+    score = sentence.get("score")
+    wpm = sentence.get("wpm")
+    pause_duration_ms = sentence.get("pauseDurationMs") or 0
+    avg_confidence = calculate_sentence_confidence_from_score(sentence)
+
+    if skipped_count > 0 and skipped_ratio >= SKIPPED_RATIO_THRESHOLD:
+        candidates.append(to_issue_result(
+            sentence, "SKIPPED_WORDS",
+            severity=90 + skipped_ratio * 20,
+            summary="일부 단어가 누락되었습니다.",
+            feedback="대본 단어를 건너뛰지 않도록 문장 단위로 천천히 다시 읽어보세요.",
+            reason=f"skippedWordCount={skipped_count}, wordCount={word_count}, skippedRatio={skipped_ratio:.2f}"
+        ))
+
+    if mismatch_count > 0 and mismatch_ratio >= MISMATCH_RATIO_THRESHOLD:
+        candidates.append(to_issue_result(
+            sentence, "LOW_CONFIDENCE",
+            severity=75 + mismatch_ratio * 15,
+            summary="대본과 다르게 인식된 단어가 있습니다.",
+            feedback="단어 끝을 흐리지 말고 대본 표현과 같은 순서로 또렷하게 말해보세요.",
+            reason=f"mismatchWordCount={mismatch_count}, wordCount={word_count}, mismatchRatio={mismatch_ratio:.2f}"
+        ))
+
+    if wpm is not None and wpm > FAST_WPM_THRESHOLD:
+        candidates.append(to_issue_result(
+            sentence, "TOO_FAST",
+            severity=min(88, 60 + (wpm - FAST_WPM_THRESHOLD) * 0.3),
+            summary="문장 발화 속도가 빠릅니다.",
+            feedback="핵심 단어 앞뒤에서 짧게 쉬면서 속도를 낮춰보세요.",
+            reason=f"wpm={wpm}, threshold={FAST_WPM_THRESHOLD}"
+        ))
+
+    if wpm is not None and wpm < SLOW_WPM_THRESHOLD:
+        candidates.append(to_issue_result(
+            sentence, "TOO_SLOW",
+            severity=min(82, 55 + (SLOW_WPM_THRESHOLD - wpm) * 0.25),
+            summary="문장 발화 속도가 느립니다.",
+            feedback="단어 사이 간격을 줄이고 문장 단위로 자연스럽게 이어서 말해보세요.",
+            reason=f"wpm={wpm}, threshold={SLOW_WPM_THRESHOLD}"
+        ))
+
+    if pause_duration_ms > LONG_PAUSE_GAP_MS:
+        candidates.append(to_issue_result(
+            sentence, "LONG_PAUSE",
+            severity=min(80, 50 + pause_duration_ms / 100),
+            summary="문장 안의 쉼이 깁니다.",
+            feedback="긴 멈춤은 줄이고 의미 단위에서만 짧게 쉬어보세요.",
+            reason=f"pauseDurationMs={pause_duration_ms}, threshold={LONG_PAUSE_GAP_MS}"
+        ))
+
+    if avg_confidence < LOW_CONFIDENCE_THRESHOLD and skipped_count == 0 and mismatch_count == 0:
+        candidates.append(to_issue_result(
+            sentence, "LOW_CONFIDENCE",
+            severity=70 + (LOW_CONFIDENCE_THRESHOLD - avg_confidence) * 20,
+            summary="발화 신뢰도가 낮습니다.",
+            feedback="입 모양을 분명히 하고 문장 끝을 흐리지 않게 말해보세요.",
+            reason=f"avgConfidence={avg_confidence:.2f}, threshold={LOW_CONFIDENCE_THRESHOLD}"
+        ))
+
+    if score is not None and score < LOW_SCORE_THRESHOLD:
+        candidates.append(to_issue_result(
+            sentence, "LOW_SCORE",
+            severity=65 + (LOW_SCORE_THRESHOLD - score) * 0.2,
+            summary="문장 점수가 낮습니다.",
+            feedback="누락, 속도, 쉼을 함께 점검하며 같은 문장을 다시 연습해보세요.",
+            reason=f"score={score}, threshold={LOW_SCORE_THRESHOLD}"
+        ))
+
+    return candidates
+
+def calculate_sentence_confidence_from_score(sentence):
+    score = sentence.get("score")
+    if score is None:
+        return 0.0
+
+    skipped_count = sentence.get("skippedWordCount") or 0
+    mismatch_count = sentence.get("mismatchWordCount") or 0
+    if skipped_count > 0 or mismatch_count > 0:
+        return min(score / 100, 0.69)
+
+    return score / 100
+
+def to_issue_result(sentence, issue_type, severity, summary, feedback, reason):
+    return {
+        "scriptSentenceId": sentence.get("scriptSentenceId"),
+        "sentenceIndex": sentence.get("sentenceIndex"),
+        "startIndex": sentence.get("sentenceIndex"),
+        "endIndex": sentence.get("sentenceIndex"),
+        "issueType": issue_type,
+        "issueSummary": summary,
+        "feedbackContent": feedback,
+        "reason": reason,
+        "score": sentence.get("score"),
+        "displayOrder": 0,
+        "wpm": sentence.get("wpm"),
+        "intensity": sentence.get("avgIntensity"),
+        "severity": severity
     }
-    feedback_map = {
-        "SKIPPED_WORDS": "대본 단어를 빠뜨리지 않도록 문장 단위로 천천히 다시 읽어보세요.",
-        "TOO_FAST": "핵심 단어 앞뒤에서 짧게 쉬며 속도를 낮춰보세요.",
-        "TOO_SLOW": "문장 흐름이 끊기지 않도록 의미 단위로 이어 읽어보세요.",
-        "LONG_PAUSE": "쉼은 유지하되 1초 안팎으로 짧게 조절해보세요.",
-        "LOW_SCORE": "발음, 속도, 쉼을 함께 점검하며 다시 연습해보세요.",
-        "LOW_CONFIDENCE": "입 모양을 또렷하게 하고 문장 끝을 흐리지 않게 말해보세요."
-    }
-
-    for i, s in enumerate(ranked[:5]):
-        itype = "LOW_CONFIDENCE"
-        if s.get("skippedWordCount", 0) > 0: itype = "SKIPPED_WORDS"
-        elif s.get("wpm", 0.0) > 170: itype = "TOO_FAST"
-        elif s.get("wpm", 0.0) < 80: itype = "TOO_SLOW"
-        elif s.get("pauseDurationMs", 0) > 1200: itype = "LONG_PAUSE"
-        elif s.get("score", 100.0) < 70: itype = "LOW_SCORE"
-
-        issues.append({
-            "scriptSentenceId": s.get("scriptSentenceId"),
-            "sentenceIndex": s.get("sentenceIndex"),
-            "startIndex": s.get("sentenceIndex"),
-            "endIndex": s.get("sentenceIndex"),
-            "issueType": itype,
-            "issueSummary": summaries.get(itype, "개선이 필요한 문장입니다."),
-            "feedbackContent": feedback_map.get(itype, "문장 단위로 다시 연습해보세요."),
-            "reason": f"유형={itype}, 점수={s.get('score')}, WPM={s.get('wpm')}, 쉼={s.get('pauseDurationMs')}ms, 누락단어={s.get('skippedWordCount')}",
-            "score": s.get("score"),
-            "displayOrder": i,
-            "wpm": s.get("wpm"),
-            "intensity": s.get("avgIntensity")
-        })
-    return issues
