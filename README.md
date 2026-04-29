@@ -57,6 +57,13 @@ PR 규칙:
 
 프로젝트 루트에 .env 파일 생성
 
+프론트엔드 로컬/배포 URL을 허용하려면 아래 CORS 값을 포함합니다.
+
+```dotenv
+CORS_ALLOWED_ORIGINS=https://speak-fit-fe.vercel.app,http://localhost:5173
+CORS_ALLOWED_ORIGIN_PATTERNS=https://*.vercel.app
+```
+
 ### 4) IntelliJ Run Configuration (local profile)
 
 Run / Debug Configurations → SpeakfitBackendApplication
