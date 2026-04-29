@@ -34,7 +34,7 @@ public class FeedbackController {
             @PathVariable Long feedbackId,
             @AuthenticationPrincipal AuthPrincipal authPrincipal) {
         return ApiResponse.onSuccess(SuccessCode.OK,
-                feedbackService.getFeedbackDetail(feedbackId, authPrincipal.getUserId()));
+                feedbackService.getSummaryFeedbackDetail(feedbackId, authPrincipal.getUserId()));
     }
 
 }
