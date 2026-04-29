@@ -3,8 +3,7 @@ name: Deploy Backend to EC2
 on:
   push:
     branches:
-      - develop
-      # - main
+      - main
 
 jobs:
   deploy:
