@@ -21,8 +21,8 @@ spring:
 
 app:
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:https://speak-fit-fe.vercel.app}
-    allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:https://*.vercel.app}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:https://speak-fit-fe.vercel.app,https://api.speakfit.org}
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:https://*.vercel.app,https://api.speakfit.org}
 
   cookie:
     secure: true
