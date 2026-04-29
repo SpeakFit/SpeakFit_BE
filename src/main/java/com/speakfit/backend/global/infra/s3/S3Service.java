@@ -2,6 +2,8 @@ package com.speakfit.backend.global.infra.s3;
 
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.speakfit.backend.global.apiPayload.exception.CustomException;
+import com.speakfit.backend.global.apiPayload.response.code.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -49,12 +51,12 @@ public class S3Service {
 
     private void validateFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("업로드할 파일이 없습니다.");
+            throw new CustomException(ErrorCode.BAD_REQUEST);
         }
 
         String extension = getExtension(file.getOriginalFilename());
         if (!ALLOWED_EXTENSIONS.contains(extension)) {
-            throw new IllegalArgumentException("지원하지 않는 파일 형식입니다.");
+            throw new CustomException(ErrorCode.BAD_REQUEST);
         }
     }
 
