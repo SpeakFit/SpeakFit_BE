@@ -6,6 +6,8 @@ from app.utils.helpers import clamp, normalize_match_text
 MIN_STT_CONFIDENCE = 0.1
 MATCH_THRESHOLD = 0.72
 SHORT_WORD_MATCH_THRESHOLD = 0.9
+PRONUNCIATION_SCORE_THRESHOLD = 0.72
+LOW_PRONUNCIATION_THRESHOLD = 0.68
 ALIGNMENT_LOOKAHEAD = 8
 TARGET_WPM = 130
 FAST_WPM_THRESHOLD = 170
@@ -61,7 +63,9 @@ def analyze_voice_features(file_path):
             "pauseCount": int(pause_count)
         }
     except Exception as e:
-        print(f"[Python] 음성 분석 중 오류: {e}")
+        import traceback
+        print(f"[Python] 음성 분석 중 치명적 오류 발생:")
+        traceback.print_exc()
         return None
 
 def build_word_results(script_words, duration_sec):
@@ -69,28 +73,7 @@ def build_word_results(script_words, duration_sec):
     if not script_words:
         return []
 
-    duration_ms = max(int(duration_sec * 1000), len(script_words) * 200)
-    slot_ms = max(int(duration_ms / len(script_words)), 1)
-    word_results = []
-
-    for index, word in enumerate(script_words):
-        start_ms = index * slot_ms
-        end_ms = duration_ms if index == len(script_words) - 1 else min((index + 1) * slot_ms, duration_ms)
-        confidence = round(clamp(0.92 - (index % 7) * 0.03, 0.65, 0.95), 2)
-        word_results.append({
-            "scriptWordId": word.scriptWordId,
-            "wordIndex": word.globalWordIndex,
-            "globalWordIndex": word.globalWordIndex,
-            "sentenceWordIndex": word.sentenceWordIndex,
-            "scriptText": word.text,
-            "spokenText": word.text,
-            "startMs": start_ms,
-            "endMs": end_ms,
-            "confidence": confidence,
-            "skipped": False,
-            "status": "NORMAL"
-        })
-    return word_results
+    return build_skipped_word_results(script_words)
 
 def build_aligned_word_results(script_words, stt_words):
     """STT 단어 타임스탬프를 대본 단어 순서에 맞춰 정렬합니다."""
@@ -139,8 +122,9 @@ def find_best_stt_match(script_word, stt_words, start_index):
     for index in range(start_index, end_index):
         spoken_text = normalize_match_text(stt_words[index].get("word"))
         similarity = calculate_word_similarity(script_text, spoken_text)
+        confidence = normalize_stt_confidence(stt_words[index].get("confidence"))
         order_penalty = (index - start_index) * 0.03
-        score = similarity - order_penalty
+        score = similarity * 0.8 + confidence * 0.2 - order_penalty
         if score > best_score:
             best_score = score
             best_match = (index, stt_words[index], similarity)
@@ -162,8 +146,9 @@ def calculate_word_similarity(script_text, spoken_text):
     return SequenceMatcher(None, script_text, spoken_text).ratio()
 
 def to_matched_word_result(script_word, stt_word, similarity):
-    confidence = float(stt_word.get("confidence") or 0.0)
-    status = "NORMAL" if similarity >= MATCH_THRESHOLD else "MISMATCH"
+    stt_confidence = normalize_stt_confidence(stt_word.get("confidence"))
+    pronunciation_score = calculate_pronunciation_score(similarity, stt_confidence)
+    status = resolve_word_status(script_word, similarity, pronunciation_score)
     return {
         "scriptWordId": script_word.scriptWordId,
         "wordIndex": script_word.globalWordIndex,
@@ -173,10 +158,31 @@ def to_matched_word_result(script_word, stt_word, similarity):
         "spokenText": stt_word.get("word"),
         "startMs": stt_word.get("startMs"),
         "endMs": stt_word.get("endMs"),
-        "confidence": round(confidence, 2),
+        "confidence": round(pronunciation_score, 2),
         "skipped": False,
         "status": status
     }
+
+def calculate_pronunciation_score(similarity, stt_confidence):
+    """Estimate word quality from script similarity and STT confidence."""
+    return clamp(similarity * 0.65 + stt_confidence * 0.35, 0.0, 1.0)
+
+def normalize_stt_confidence(confidence):
+    confidence = float(confidence or 0.0)
+    if confidence <= 0:
+        return 0.75
+
+    return clamp(confidence, 0.0, 1.0)
+
+def resolve_word_status(script_word, similarity, pronunciation_score):
+    script_text = normalize_match_text(script_word.normalizedText or script_word.text)
+    similarity_threshold = SHORT_WORD_MATCH_THRESHOLD if len(script_text) <= 2 else MATCH_THRESHOLD
+    if similarity < similarity_threshold:
+        return "MISMATCH"
+    if pronunciation_score < PRONUNCIATION_SCORE_THRESHOLD:
+        return "MISMATCH"
+
+    return "NORMAL"
 
 def to_skipped_word_result(script_word):
     return {
@@ -313,8 +319,8 @@ def calculate_sentence_score(word_count, avg_confidence, skipped_word_count, mis
 
     score = (
         avg_confidence * 100
-        - skipped_ratio * 45
-        - mismatch_ratio * 25
+        - skipped_ratio * 50
+        - mismatch_ratio * 35
         - speed_penalty
         - pause_penalty
     )

@@ -40,6 +40,19 @@ public class JwtProvider {
         return createToken(userId, null, refreshExpSeconds);
     }
 
+    public String createPracticeWebSocketToken(Long userId, Long practiceId) {
+        Instant now = Instant.now();
+
+        return Jwts.builder()
+                .subject(String.valueOf(userId))
+                .claim("type", "ws_practice")
+                .claim("practiceId", practiceId)
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plusSeconds(600)))
+                .signWith(key, SignatureAlgorithm.HS256)
+                .compact();
+    }
+
     // 토큰 발급
     public Instant getRefreshTokenExpiresAt() {
         return Instant.now().plusSeconds(refreshExpSeconds);

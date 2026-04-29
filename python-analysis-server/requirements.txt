@@ -8,3 +8,4 @@ google-generativeai
 google-cloud-speech
 python-dotenv
 PyMuPDF
+static-ffmpeg
