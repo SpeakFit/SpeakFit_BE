@@ -25,7 +25,7 @@ cloud:
     region:
       static: ap-northeast-2
     s3:
-      bucket: speakfit-images-bucket
+      bucket: ${AWS_S3_BUCKET}
     stack:
       auto: false
 
