@@ -16,6 +16,7 @@ jobs:
           git pull origin main
           chmod +x gradlew
           ./gradlew clean build -x test
-          docker compose down
+          docker compose down --remove-orphans
+          docker rm -f speakfit-backend 2>/dev/null || true
           docker compose up -d --build
           docker image prune -f
