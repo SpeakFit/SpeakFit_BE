@@ -25,9 +25,6 @@ public class Feedback extends BaseEntity {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @Column(name = "ai_feedback", columnDefinition = "TEXT")
-    private String aiFeedback;
-
     @Column(name = "start_date", nullable = false)
     private LocalDate startDate;
 
@@ -38,9 +35,40 @@ public class Feedback extends BaseEntity {
     @Column(name = "status", nullable = false)
     private FeedbackStatus status;
 
-    // 피드백 상태 업데이트
-    public void updateFeedback(String aiFeedback, FeedbackStatus status) {
-        this.aiFeedback = aiFeedback;
-        this.status = status;
+    // 스피치 스타일 분석
+    private String mostSimilarStyle;
+    private Integer matchingRate;
+    @Column(columnDefinition = "TEXT")
+    private String styleDescription;
+
+    // AI 상세 진단 (AI Report)
+    private String positiveTitle;
+    @Column(columnDefinition = "TEXT")
+    private String positiveDescription;
+    private String improvementTitle;
+    @Column(columnDefinition = "TEXT")
+    private String improvementDescription;
+
+    // 연습 가이드 요약 (Practice Guide)
+    private String guideSummary;
+    @Column(columnDefinition = "TEXT")
+    private String guideNextStep;
+
+    // 비즈니스 로직 (업데이트 메소드)
+    // AI 분석 완료 시 데이터를 업데이트하는 메소드
+    public void completeAnalysis(String mostSimilarStyle, Integer matchingRate, String styleDescription,
+                                 String positiveTitle, String positiveDescription,
+                                 String improvementTitle, String improvementDescription,
+                                 String guideSummary, String guideNextStep) {
+        this.mostSimilarStyle = mostSimilarStyle;
+        this.matchingRate = matchingRate;
+        this.styleDescription = styleDescription;
+        this.positiveTitle = positiveTitle;
+        this.positiveDescription = positiveDescription;
+        this.improvementTitle = improvementTitle;
+        this.improvementDescription = improvementDescription;
+        this.guideSummary = guideSummary;
+        this.guideNextStep = guideNextStep;
+        this.status = FeedbackStatus.COMPLETED; // 분석 완료 상태로 변경]
     }
 }
