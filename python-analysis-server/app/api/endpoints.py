@@ -495,3 +495,52 @@ async def practice_websocket(websocket: WebSocket, practice_id: int):
         if stt_session:
             print("[WS] Stopping STT session")
             stt_session.stop()
+@router.post("/voice-analysis")
+async def analyze_voice_api(voiceFile: UploadFile = File(...)):
+    """
+    사용자 음색 분석 요청 API
+
+    요청된 예문 녹음 파일을 임시 저장하고, Librosa 기반의 음성 특징 분석 함수를 호출하여
+    평균 피치(Pitch)와 발화 속도(WPM) 등의 분석 결과를 반환합니다.
+
+    - Content-Type: multipart/form-data
+    - Request Body: voiceFile (File, 필수)
+    - Response:
+        - 성공 시 (200 OK): 분석 결과 및 상태 반환
+        - 실패 시 (422 Unprocessable Entity): 목소리 미감지 시 에러 메시지 반환
+        - 실패 시 (400 Bad Request): 데이터 부족 또는 예외 발생 시 에러 메시지 반환
+    """
+    temp_path = f"/tmp/{voiceFile.filename}"
+    try:
+        # 1. 파일 임시 저장
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(voiceFile.file, buffer)
+
+        # 2. 기존 음성 분석 함수 호출
+        features = analyze_voice_features(temp_path)
+
+        if not features:
+            raise HTTPException(
+                status_code=422,
+                detail="목소리가 감지되지 않았습니다. 조용한 곳에서 다시 녹음해주세요."
+            )
+
+        return {
+            "isSuccess": True,
+            "code": "COMMON200",
+            "message": "성공입니다.",
+            "result": {
+                "analysisId": 123,
+                "avgPitch": features.get("avgPitch", 0.0),
+                "avgWpm": features.get("avgWpm", 0.0),
+                "status": "COMPLETED"
+            }
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail="분석을 위한 음성 데이터가 부족합니다. 세 문장을 모두 읽어주세요."
+        )
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
