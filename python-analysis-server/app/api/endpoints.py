@@ -8,13 +8,14 @@ import hmac
 import queue
 import threading
 import time
+import shutil
+import tempfile
+from pathlib import Path
 from difflib import SequenceMatcher
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-
-# ... (기존 임포트 생략되지 않도록 주의하며 상단에 sys 추가)
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 
 from app.schemas.models import (
-    AnalyzeRequest, MarkRequest, GenerateScriptRequest, 
+    AnalyzeRequest, MarkRequest, GenerateScriptRequest,
     UpdateScriptRequest, ConvertPptRequest, ScriptWordPayload
 )
 from app.services.voice_service import (
@@ -23,7 +24,7 @@ from app.services.voice_service import (
 )
 from app.services.stt_service import transcribe_audio
 from app.services.ai_service import (
-    generate_ai_feedback, generate_script_ai, 
+    generate_ai_feedback, generate_script_ai,
     update_script_ai, mark_script_ai
 )
 from app.services.ppt_service import (
@@ -31,7 +32,7 @@ from app.services.ppt_service import (
 )
 from app.utils.helpers import clamp, normalize_match_text
 from app.core.config import (
-    GOOGLE_STT_ENABLED, GOOGLE_STT_SAMPLE_RATE, 
+    GOOGLE_STT_ENABLED, GOOGLE_STT_SAMPLE_RATE,
     GOOGLE_STT_LANGUAGE_CODE, GOOGLE_STT_ENCODING, GOOGLE_STT_INTERIM_RESULTS,
     GOOGLE_STT_STREAM_ALLOWED_ENCODINGS,
     GOOGLE_STT_STREAM_MAX_CHUNK_BYTES, GOOGLE_STT_STREAM_MAX_SECONDS,
@@ -74,6 +75,7 @@ def resolve_stream_audio_encoding(value=None):
 
 def requires_sample_rate(audio_encoding):
     return audio_encoding not in {"WEBM_OPUS", "OGG_OPUS"}
+
 
 class GoogleStreamingSttSession:
     def __init__(self, practice_id, script_words, websocket, loop, audio_encoding=None, sample_rate_hertz=None):
@@ -137,7 +139,7 @@ class GoogleStreamingSttSession:
         try:
             client = speech.SpeechClient()
             encoding = get_google_stream_audio_encoding(speech, self.audio_encoding)
-            
+
             # WEBM_OPUS는 헤더에 샘플 레이트가 있으므로 강제로 지정하면 에러가 납니다.
             if not requires_sample_rate(self.audio_encoding):
                 config = speech.RecognitionConfig(
@@ -150,9 +152,9 @@ class GoogleStreamingSttSession:
                     sample_rate_hertz=self.sample_rate_hertz,
                     language_code=GOOGLE_STT_LANGUAGE_CODE,
                 )
-                
+
             streaming_config = speech.StreamingRecognitionConfig(config=config, interim_results=GOOGLE_STT_INTERIM_RESULTS)
-            
+
             def requests():
                 yield speech.StreamingRecognizeRequest(streaming_config=streaming_config)
                 while not self.closed.is_set():
@@ -176,19 +178,19 @@ class GoogleStreamingSttSession:
 
             responses = client.streaming_recognize(requests=requests())
             print(f"[Python] STT Stream started for practice {self.practice_id}. Waiting for responses...", flush=True)
-            
+
             for response in responses:
                 if self.closed.is_set(): break
                 if not response.results:
                     continue
-                
+
                 for result in response.results:
                     if not result.alternatives: continue
                     alt = result.alternatives[0]
-                    
+
                     # 매우 중요한 로그: 실제 인식된 텍스트
                     print(f"[STT LIVE] Practice {self.practice_id} | Transcript: {alt.transcript} | Final: {getattr(result, 'is_final', False)}", flush=True)
-                    
+
                     msg = self.build_highlight_message(
                         alt.transcript,
                         getattr(result, "is_final", False),
@@ -365,7 +367,7 @@ def decode_base64url(value):
 async def run_analysis(req: AnalyzeRequest):
     if not os.path.exists(req.audioUrl):
         raise HTTPException(status_code=404, detail="Audio file not found")
-    
+
     features = analyze_voice_features(req.audioUrl)
     if not features:
         raise HTTPException(status_code=500, detail="Analysis failed")
@@ -425,14 +427,14 @@ async def practice_websocket(websocket: WebSocket, practice_id: int):
             msg = await websocket.receive()
             # print(f"DEBUG: Received message type: {msg.get('type')}", flush=True)
 
-            if msg.get("type") == "websocket.disconnect": 
+            if msg.get("type") == "websocket.disconnect":
                 print(f"[WS] Client disconnected: practice_id={practice_id}", flush=True)
                 break
-            
+
             if msg.get("text"):
                 data = json.loads(msg["text"])
                 print(f"[WS] Received text: {data.get('type')}", flush=True)
-                
+
                 if data.get("type") == "init":
                     print(f"[WS] Initializing STT session for {practice_id}", flush=True)
                     if not GOOGLE_STT_ENABLED:
@@ -475,11 +477,11 @@ async def practice_websocket(websocket: WebSocket, practice_id: int):
                 elif data.get("type") == "stop":
                     print("[WS] Received stop message", flush=True)
                     break
-            
+
             if msg.get("bytes"):
                 audio_data = msg["bytes"]
                 # 0.5초마다 데이터가 오는지 확인할 수 있는 최소한의 로그
-                # print(".", end="", flush=True) 
+                # print(".", end="", flush=True)
                 if stt_session:
                     if not stt_session.add_audio(audio_data):
                         print(f"\n[WS] Failed to add audio for {practice_id}", flush=True)
@@ -495,3 +497,57 @@ async def practice_websocket(websocket: WebSocket, practice_id: int):
         if stt_session:
             print("[WS] Stopping STT session")
             stt_session.stop()
+
+@router.post("/voice-analysis")
+async def analyze_voice_api(voiceFile: UploadFile = File(...)):
+    """
+    사용자 음색 분석 요청 API
+
+    요청된 예문 녹음 파일을 임시 저장하고, Librosa 기반의 음성 특징 분석 함수를 호출하여
+    평균 피치(Pitch)와 발화 속도(WPM) 등의 분석 결과를 반환합니다.
+
+    - Content-Type: multipart/form-data
+    - Request Body: voiceFile (File, 필수)
+    - Response:
+        - 성공 시 (200 OK): 분석 결과 및 상태 반환
+        - 실패 시 (422 Unprocessable Entity): 목소리 미감지 시 에러 메시지 반환
+        - 실패 시 (400 Bad Request): 데이터 부족 또는 예외 발생 시 에러 메시지 반환
+    """
+    temp_path = None
+    try:
+        # 클라이언트의 파일 이름으로부터 확장자를 추출
+        suffix = Path(voiceFile.filename or "").suffix
+
+        # 1. 안전한 임시 파일 생성
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as buffer:
+            temp_path = buffer.name
+            shutil.copyfileobj(voiceFile.file, buffer)
+
+        # 2. 기존 음성 분석 함수 호출
+        features = analyze_voice_features(temp_path)
+
+        if not features:
+            raise HTTPException(
+                status_code=422,
+                detail="목소리가 감지되지 않았습니다. 조용한 곳에서 다시 녹음해주세요."
+            )
+
+        # 3. 래퍼를 제거하고 flat한 JSON (snake_case) 형태로 반환
+        return {
+            "analysis_id": 123,
+            "avg_pitch": features.get("avgPitch", 0.0),
+            "avg_wpm": features.get("avgWpm", 0.0),
+            "status": "COMPLETED"
+        }
+    except HTTPException:
+        # 4. 예외 처리 방식: 422 에러가 400으로 덮어씌워지지 않도록 방지
+        raise
+    except Exception as err:
+        raise HTTPException(
+            status_code=400,
+            detail="분석을 위한 음성 데이터가 부족합니다. 세 문장을 모두 읽어주세요."
+        ) from err
+    finally:
+        # 5. 사용한 임시 파일 정리 (서버 공간 확보 및 보안)
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
