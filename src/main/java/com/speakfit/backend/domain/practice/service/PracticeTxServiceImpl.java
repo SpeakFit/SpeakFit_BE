@@ -5,6 +5,7 @@ import com.speakfit.backend.domain.practice.enums.Status;
 import com.speakfit.backend.domain.practice.exception.PracticeErrorCode;
 import com.speakfit.backend.domain.practice.repository.PracticeRepository;
 import com.speakfit.backend.domain.style.entity.SpeechStyle;
+import com.speakfit.backend.domain.style.exception.SpeechStyleErrorCode;
 import com.speakfit.backend.domain.style.repository.SpeechStyleRepository;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +26,7 @@ public class PracticeTxServiceImpl implements PracticeTxService {
                 .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
 
         SpeechStyle style = speechStyleRepository.findById(styleId)
-                .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
+                .orElseThrow(() -> new CustomException(SpeechStyleErrorCode.STYLE_NOT_FOUND));
 
         record.selectStyle(style);
         practiceRepository.save(record);
