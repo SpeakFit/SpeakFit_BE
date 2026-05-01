@@ -296,7 +296,7 @@ def find_realtime_token_match(script_words, token, search_start):
     best_word = None
     best_score = 0.0
     for script_word in script_words[search_start:search_start + 16]:
-        script_text = normalize_matchtext(script_word.get("normalizedText") or script_word.get("text"))
+        script_text = normalize_match_text(script_word.get("normalizedText") or script_word.get("text"))
         if not script_text:
             continue
 
