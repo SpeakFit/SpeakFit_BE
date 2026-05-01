@@ -19,6 +19,7 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.io.File;
@@ -39,7 +40,6 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
     @Override
     @Transactional
     public VoiceAnalysisResultRes requestVoiceAnalysis(MultipartFile voiceFile) {
-
         // 1. 음성 데이터 파일 검증
         if (voiceFile == null || voiceFile.isEmpty()) {
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
@@ -50,9 +50,10 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
         }
 
+        Path tempPath = null;
         try {
             // 3. 임시 파일 생성 및 Python 서버 API 호출 준비
-            Path tempPath = Files.createTempFile("voice", ".mp3");
+            tempPath = Files.createTempFile("voice", ".mp3");
             File tempFile = tempPath.toFile();
             voiceFile.transferTo(tempFile);
 
@@ -68,10 +69,7 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
                     .bodyToMono(VoiceAnalysisResultRes.class)
                     .block();
 
-            // 5. 임시 파일 삭제
-            Files.deleteIfExists(tempPath);
-
-            // 6. 분석 완료 시 처리 로직
+            // 5. 분석 완료 시 처리 로직
             if (response != null && "COMPLETED".equals(response.getStatus())) {
                 Long recordId = response.getAnalysisId();
                 PracticeRecord practiceRecord = practiceRepository.findById(recordId)
@@ -87,14 +85,15 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
 
                 analysisResultRepository.save(analysisResult);
 
-                // User 엔티티의 최초 기본 음색 저장 로직 (최초 1회만 저장)
+                // 6. User 엔티티의 최초 기본 음색 저장 로직 (최초 1회만 저장)
                 User user = practiceRecord.getUser();
+
+                // 두 항목이 모두 null일 때만 업데이트하도록 변경
                 if (user.getDefaultVoice() == null ||
-                        user.getDefaultVoice().getDefaultPitch() == null ||
-                        user.getDefaultVoice().getDefaultWpm() == null) {
+                        (user.getDefaultVoice().getDefaultPitch() == null && user.getDefaultVoice().getDefaultWpm() == null)) {
 
                     user.updateDefaultVoiceMetrics(response.getAvgPitch(), response.getAvgWpm());
-                    userRepository.save(user); // JPA의 변경 감지 또는 save를 통해 DB 반영
+                    userRepository.save(user);
                 }
             }
 
@@ -105,13 +104,25 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
                 throw new VoiceException(VoiceExceptionStatus.VOICE_UNPROCESSABLE);
             }
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
+        } catch (WebClientRequestException e) {
+            // 7. 네트워크 예외에 대한 일관된 예외 처리
+            throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
         } catch (IOException e) {
             throw new VoiceException(VoiceExceptionStatus.VOICE_UNPROCESSABLE);
+        } finally {
+            // 8. 예외 발생 여부와 상관없이 임시 파일 삭제를 보장하는 블록
+            if (tempPath != null) {
+                try {
+                    Files.deleteIfExists(tempPath);
+                } catch (IOException e) {
+                    // 예외 무시
+                }
+            }
         }
     }
 
     private boolean isDataInsufficient(MultipartFile file) {
-        // 파일의 크기가 최소 요구사항에 미치지 못하는지 확인 (예: 50KB 미만)
+        // 파일의 크기가 최소 요구사항에 미치지 못하는지 확인
         return file.getSize() < 50 * 1024;
     }
 }
