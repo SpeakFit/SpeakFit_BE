@@ -67,7 +67,7 @@ public class Feedback extends BaseEntity {
     private String improvementDescription;
 
     // 4. 연습 가이드 요약
-    @Column(name = "guide_summary")
+    @Column(name = "guide_summary", columnDefinition = "TEXT")
     private String guideSummary;
     // 연습 가이드 다음 단계
     @Column(name = "guide_next_step", columnDefinition = "TEXT")

@@ -42,32 +42,57 @@ public class AiFeedbackService {
                     .bodyToMono(PythonFeedbackRes.class)
                     .timeout(Duration.ofSeconds(60))
                     .subscribe(
-                            // 메서드 참조 대신 람다 표현식으로 feedbackId를 넘기도록 수정
                             res -> updateFeedbackResult(feedbackId, res),
                             err -> {
                                 log.error("AI Error: ", err);
-                                // AI 서비스 호출 중 에러 발생 시 실패 상태로 변경
                                 failFeedbackResult(feedbackId);
                             }
                     );
         } catch (Exception e) {
             log.error("Internal Error: ", e);
-            // 예외 발생 시 실패 상태로 변경
             failFeedbackResult(feedbackId);
         }
     }
 
     // 피드백 결과를 업데이트합니다.
     public void updateFeedbackResult(Long feedbackId, PythonFeedbackRes res) {
-        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
-                feedbackRepository.findById(feedbackId).ifPresent(f ->
-                        f.completeAnalysis(
-                                res.mostSimilarStyle, res.matchingRate, res.styleDescription,
-                                res.positiveTitle, res.positiveDescription, res.improvementTitle,
-                                res.improvementDescription, res.guideSummary, res.guideNextStep
-                        )
-                )
-        );
+        try {
+            // 유효성 검사 수행 (실패 시 예외 발생)
+            validateResponse(res);
+
+            new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                    feedbackRepository.findById(feedbackId).ifPresent(f ->
+                            f.completeAnalysis(
+                                    res.mostSimilarStyle, res.matchingRate, res.styleDescription,
+                                    res.positiveTitle, res.positiveDescription, res.improvementTitle,
+                                    res.improvementDescription, res.guideSummary, res.guideNextStep
+                            )
+                    )
+            );
+        } catch (Exception e) {
+            log.error("AI Feedback validation failed: ", e);
+            // 유효하지 않은 응답이 오면 FAILED 상태로 업데이트
+            failFeedbackResult(feedbackId);
+        }
+    }
+
+    // AI 응답 검증 메서드
+    private void validateResponse(PythonFeedbackRes res) {
+        if (res == null
+                || res.getMatchingRate() == null
+                || res.getMatchingRate() < 0
+                || res.getMatchingRate() > 100
+                || res.getMostSimilarStyle() == null || res.getMostSimilarStyle().trim().isEmpty()
+                || res.getStyleDescription() == null || res.getStyleDescription().trim().isEmpty()
+                || res.getPositiveTitle() == null || res.getPositiveTitle().trim().isEmpty()
+                || res.getPositiveDescription() == null || res.getPositiveDescription().trim().isEmpty()
+                || res.getImprovementTitle() == null || res.getImprovementTitle().trim().isEmpty()
+                || res.getImprovementDescription() == null || res.getImprovementDescription().trim().isEmpty()
+                || res.getGuideSummary() == null || res.getGuideSummary().trim().isEmpty()
+                || res.getGuideNextStep() == null || res.getGuideNextStep().trim().isEmpty()) {
+
+            throw new IllegalArgumentException("Invalid AI feedback payload");
+        }
     }
 
     // 피드백 처리가 실패했을 때 상태를 변경합니다.
