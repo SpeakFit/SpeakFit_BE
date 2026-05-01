@@ -26,8 +26,11 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -54,6 +57,7 @@ public class FeedbackServiceImpl implements FeedbackService {
         if (req.getEndDate().isBefore(req.getStartDate())) {
             throw new CustomException(FeedbackErrorCode.FEEDBACK_INVALID_DATE_RANGE);
         }
+
         // 2. 날짜 범위 설정 (00:00:00 ~ 23:59:59)
         LocalDateTime startDateTime = req.getStartDate().atStartOfDay();
         LocalDateTime endDateTime = req.getEndDate().atTime(LocalTime.MAX);
@@ -120,7 +124,7 @@ public class FeedbackServiceImpl implements FeedbackService {
                     .build();
         }
 
-        // 기간 설정 (이번 주 vs 지난 주)]
+        // 기간 설정
         LocalDateTime thisStart = feedback.getStartDate().atStartOfDay();
         LocalDateTime thisEnd = feedback.getEndDate().atTime(LocalTime.MAX);
         long days = java.time.temporal.ChronoUnit.DAYS.between(feedback.getStartDate(), feedback.getEndDate()) + 1;
@@ -130,9 +134,15 @@ public class FeedbackServiceImpl implements FeedbackService {
         List<PracticeRecord> curRecords = practiceRepository.findAllByUserAndStatusAndCreatedAtBetween(feedback.getUser(), Status.ANALYZED, thisStart, thisEnd);
         List<PracticeRecord> prevRecords = practiceRepository.findAllByUserAndStatusAndCreatedAtBetween(feedback.getUser(), Status.ANALYZED, prevStart, prevEnd);
 
-        // 5대 지표 수치 계산 (중복 로직 제거용)
+        // 5대 지표 수치 계산
         CalculatedMetrics cur = getCalculatedMetrics(curRecords);
         CalculatedMetrics prev = getCalculatedMetrics(prevRecords);
+
+        // 3. NullPointerException 방어 코드 (오타 수정: targetMetrics 사용)
+        List<String> targetMetrics = Collections.emptyList();
+        if (feedback.getGuideSummary() != null) {
+            targetMetrics = Arrays.asList(feedback.getGuideSummary().split(","));
+        }
 
         // DB에서 실제 분석 텍스트 조회
         return GetFeedbackDetailRes.builder()
@@ -141,10 +151,10 @@ public class FeedbackServiceImpl implements FeedbackService {
                 .startDate(feedback.getStartDate().toString())
                 .endDate(feedback.getEndDate().toString())
                 .userAverageMetrics(GetFeedbackDetailRes.UserAverageMetrics.builder()
-                        .avgSpeed((int)cur.w() + " wpm").avgDB((int)cur.d() + " dB")
-                        .totalPauses((int)cur.p() + " 회").avgZCR((int)cur.z() + " %").avgHz((int)cur.h() + " Hz").build())
+                        .avgSpeed((int) cur.w() + " wpm").avgDB((int) cur.d() + " dB")
+                        .totalPauses((int) cur.p() + " 회").avgZCR((int) cur.z() + " %").avgHz((int) cur.h() + " Hz").build())
                 .styleMatching(GetFeedbackDetailRes.StyleMatching.builder()
-                        .mostSimilarStyle(feedback.getMostSimilarStyle()) // DB 필드 반영]
+                        .mostSimilarStyle(feedback.getMostSimilarStyle())
                         .matchingRate(feedback.getMatchingRate())
                         .description(feedback.getStyleDescription()).build())
                 .growthTrend(GetFeedbackDetailRes.GrowthTrend.builder()
@@ -153,38 +163,55 @@ public class FeedbackServiceImpl implements FeedbackService {
                         .hz(createMetricDiff(cur.h(), prev.h(), "Hz")).build())
                 .aiReport(GetFeedbackDetailRes.AiReport.builder()
                         .positiveFeedback(GetFeedbackDetailRes.FeedbackDetail.builder()
-                                .title(feedback.getPositiveTitle()) // DB 필드 반영]
+                                .title(feedback.getPositiveTitle())
                                 .description(feedback.getPositiveDescription()).build())
                         .improvementFeedback(GetFeedbackDetailRes.FeedbackDetail.builder()
                                 .title(feedback.getImprovementTitle())
                                 .description(feedback.getImprovementDescription()).build()).build())
                 .practiceGuide(GetFeedbackDetailRes.PracticeGuide.builder()
-                        .targetMetrics(Arrays.asList(feedback.getGuideSummary().split(","))) // 쉼표 구분 지표 추출]
+                        .targetMetrics(targetMetrics)
                         .summary(feedback.getGuideSummary())
                         .nextStep(feedback.getGuideNextStep()).build())
                 .build();
     }
 
-    // 5대 지표 계산 통합 헬퍼
+    // N+1 문제를 방지하기 위해 AnalysisResult를 한 번에 조회하도록 변경한 메소드입니다.
     private CalculatedMetrics getCalculatedMetrics(List<PracticeRecord> records) {
-        double w = calculateAverage(records, AnalysisResult::getAvgWpm);
-        double d = calculateAverage(records, AnalysisResult::getAvgIntensity);
-        double p = calculateAverage(records, r -> r.getPauseCount() != null ? r.getPauseCount().doubleValue() : 0.0);
-        double z = calculateAverage(records, AnalysisResult::getAvgZcr) * 100;
-        double h = calculateAverage(records, AnalysisResult::getAvgPitch);
+        if (records.isEmpty()) {
+            return new CalculatedMetrics(0.0, 0.0, 0.0, 0.0, 0.0);
+        }
+
+        List<AnalysisResult> analysisResults = analysisResultRepository.findByPracticeRecordIn(records);
+
+        double w = calculateForResult(analysisResults, AnalysisResult::getAvgWpm);
+        double d = calculateForResult(analysisResults, AnalysisResult::getAvgIntensity);
+
+        // PracticeRecord 대신 AnalysisResult의 pauseCount 필드를 기준으로 평균을 계산
+        double p = analysisResults.stream()
+                .map(AnalysisResult::getPauseCount)
+                .filter(Objects::nonNull)
+                .mapToDouble(Integer::doubleValue)
+                .average()
+                .orElse(0.0);
+
+        double z = calculateForResult(analysisResults, AnalysisResult::getAvgZcr) * 100;
+        double h = calculateForResult(analysisResults, AnalysisResult::getAvgPitch);
+
         return new CalculatedMetrics(w, d, p, z, h);
     }
 
     private GetFeedbackDetailRes.MetricDiff createMetricDiff(double cur, double prev, String unit) {
         double diff = cur - prev;
-        String diffStr = (diff >= 0 ? "+ " : "- ") + Math.abs((int)diff) + unit;
+        String diffStr = (diff >= 0 ? "+ " : "- ") + Math.abs((int) diff) + unit;
         return GetFeedbackDetailRes.MetricDiff.builder().current(cur).previous(prev).diff(diffStr).build();
     }
 
-    private double calculateAverage(List<PracticeRecord> records, java.util.function.Function<AnalysisResult, Double> mapper) {
-        return records.stream()
-                .map(record -> analysisResultRepository.findByPracticeRecord(record)
-                        .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND)))
-                .map(mapper).filter(Objects::nonNull).mapToDouble(Double::doubleValue).average().orElse(0.0);
+    private double calculateForResult(List<AnalysisResult> results, java.util.function.Function<AnalysisResult, Double> mapper) {
+        return results.stream()
+                .map(mapper)
+                .filter(Objects::nonNull)
+                .mapToDouble(Double::doubleValue)
+                .average()
+                .orElse(0.0);
     }
 }
