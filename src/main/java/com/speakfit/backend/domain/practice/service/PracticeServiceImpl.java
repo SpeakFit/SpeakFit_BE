@@ -4,6 +4,9 @@ import com.speakfit.backend.domain.practice.dto.req.InputPracticeInfoReq;
 import com.speakfit.backend.domain.practice.dto.req.SelectStyleReq;
 import com.speakfit.backend.domain.practice.dto.req.StopPracticeReq;
 import com.speakfit.backend.domain.practice.dto.res.*;
+import com.speakfit.backend.domain.practice.enums.AudienceType;
+import com.speakfit.backend.domain.practice.enums.AudienceUnderstanding;
+import com.speakfit.backend.domain.practice.enums.SpeechInformation;
 import com.speakfit.backend.domain.practice.entity.*;
 import com.speakfit.backend.domain.practice.enums.Status;
 import com.speakfit.backend.domain.practice.exception.PracticeErrorCode;
@@ -15,6 +18,8 @@ import com.speakfit.backend.domain.script.exception.ScriptErrorCode;
 import com.speakfit.backend.domain.script.repository.ScriptRepository;
 import com.speakfit.backend.domain.script.service.ScriptContentParser;
 import com.speakfit.backend.domain.style.entity.SpeechStyle;
+import com.speakfit.backend.domain.style.enums.StyleType;
+import com.speakfit.backend.domain.style.exception.SpeechStyleErrorCode;
 import com.speakfit.backend.domain.style.repository.SpeechStyleRepository;
 import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.domain.user.repository.UserRepository;
@@ -85,22 +90,54 @@ public class PracticeServiceImpl implements PracticeService {
 
         // 3. 발표 스타일 추천 로직 (현재는 DB의 첫 번째 데이터를 추천하는 방식)
         // TODO: 향후 AI를 통한 정밀 추천 로직 연동
-        SpeechStyle recommendedStyle = speechStyleRepository.findAll().stream()
-                .findFirst()
-                .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
+        StyleType recommendedStyleType = recommendStyleType(req);
+        List<SpeechStyle> styles = speechStyleRepository.findAllByOrderByIdAsc();
+
+        if (styles.isEmpty()) {
+            throw new CustomException(SpeechStyleErrorCode.STYLES_EMPTY);
+        }
+
+        List<InputPracticeInfoRes.StyleItem> styleList = styles.stream()
+                .map(style -> InputPracticeInfoRes.StyleItem.builder()
+                        .styleId(style.getId())
+                        .styleType(style.getStyleType())
+                        .description(style.getDescription())
+                        .guideAudioUrl(style.getSampleAudioUrl())
+                        .isRecommended(style.getStyleType() == recommendedStyleType)
+                        .build())
+                .toList();
 
         // 4. 생성된 연습 ID와 추천 스타일 반환
         return InputPracticeInfoRes.Response.builder()
                 .practiceId(savedRecord.getId())
-                .recommendedStyle(InputPracticeInfoRes.RecommendedStyle.builder()
-                        .styleId(recommendedStyle.getId())
-                        .styleType(recommendedStyle.getStyleType())
-                        .description(recommendedStyle.getDescription())
-                        .build())
+                .styleList(styleList)
                 .build();
     }
 
     // 추천 또는 선택한 발표 스타일 확정 및 낭독 가이드 반환 서비스 구현
+    private StyleType recommendStyleType(InputPracticeInfoReq.Request req) {
+        if (req.getSpeechInformation() == SpeechInformation.INTERVIEW) {
+            return StyleType.CALM_LOW_TONE;
+        }
+
+        if (req.getSpeechInformation() == SpeechInformation.LECTURE
+                || req.getAudienceUnderstanding() == AudienceUnderstanding.LOW) {
+            return StyleType.STANDARD_LECTURE;
+        }
+
+        if (req.getSpeechInformation() == SpeechInformation.DISCUSSION
+                || req.getSpeechInformation() == SpeechInformation.FEEDBACKPRACTICE) {
+            return StyleType.DELIVERY;
+        }
+
+        if (req.getAudienceType() == AudienceType.CHILD
+                || req.getAudienceType() == AudienceType.YOUTH) {
+            return StyleType.ENERGETIC_FAST;
+        }
+
+        return StyleType.ENERGETIC_FAST;
+    }
+
     @Override
     public SelectStyleRes.Response selectStyle(Long practiceId, SelectStyleReq.Request req, Long userId) {
         // 1. 연습 기록 조회 및 권한 체크 (조회는 트랜잭션 없이 수행)
@@ -113,7 +150,7 @@ public class PracticeServiceImpl implements PracticeService {
 
         // 2. 선택한 스타일 조회
         SpeechStyle style = speechStyleRepository.findById(req.getStyleId())
-                .orElseThrow(() -> new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND));
+                .orElseThrow(() -> new CustomException(SpeechStyleErrorCode.STYLE_NOT_FOUND));
 
         // 3. 스타일 확정 (DB 작업만 트랜잭션으로 처리)
         practiceTxService.updateStyle(practiceId, style.getId());
