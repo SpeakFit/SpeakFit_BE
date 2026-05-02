@@ -1,18 +1,30 @@
-package com.speakfit.backend.domain.voice.DTO.res;
+package com.speakfit.backend.domain.voice.dto.res;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
-import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import lombok.Builder;
 import lombok.Getter;
 
 @Getter
 @Builder
-@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class VoiceAnalysisResultRes {
+
     private Long analysisId;
     private String status;
-    private Double avgWpm;
-    private Double avgPitch;
+    private Integer progress;
+    private VoiceStyle voiceStyle;
+    private UserAverageMetrics userAverageMetrics;
+
+    @Getter
+    @Builder
+    public static class VoiceStyle {
+        private String mostSimilarStyle;
+        private Integer matchingRate;
+        private String description;
+    }
+
+    @Getter
+    @Builder
+    public static class UserAverageMetrics {
+        private Double avgPitch;
+        private Double avgWPM;
+    }
 }
