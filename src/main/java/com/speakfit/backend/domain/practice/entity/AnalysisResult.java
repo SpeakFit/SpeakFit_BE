@@ -50,6 +50,16 @@ public class AnalysisResult extends BaseEntity {
     @Column(name = "pause_count")
     private Integer pauseCount;
 
+    // CodeRabbit 피드백 반영: 스피치 스타일 관련 필드 추가
+    @Column(name = "most_similar_style")
+    private String mostSimilarStyle;
+
+    @Column(name = "matching_rate")
+    private Integer matchingRate;
+
+    @Column(name = "voice_style_description")
+    private String voiceStyleDescription;
+
     public void updateData(Double avgWpm, Double avgPitch, Double avgIntensity, Double avgZcr,
                            Double pauseRatio, Double wpmDiff, Double pitchDiff,
                            Double intensityDiff, Double zcrDiff, Integer pauseCount) {
@@ -61,7 +71,13 @@ public class AnalysisResult extends BaseEntity {
         this.wpmDiff = wpmDiff;
         this.pitchDiff = pitchDiff;
         this.intensityDiff = intensityDiff;
-        this.zcrDiff = zcrDiff; // SQL에 맞춰 zcrDiff로 통일
+        this.zcrDiff = zcrDiff;
         this.pauseCount = pauseCount;
+    }
+
+    public void updateStyleData(String mostSimilarStyle, Integer matchingRate, String voiceStyleDescription) {
+        this.mostSimilarStyle = mostSimilarStyle;
+        this.matchingRate = matchingRate;
+        this.voiceStyleDescription = voiceStyleDescription;
     }
 }

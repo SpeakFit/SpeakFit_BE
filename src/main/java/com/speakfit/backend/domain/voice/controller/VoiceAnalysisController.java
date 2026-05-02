@@ -1,6 +1,6 @@
 package com.speakfit.backend.domain.voice.controller;
 
-import com.speakfit.backend.domain.voice.DTO.res.VoiceAnalysisResultRes;
+import com.speakfit.backend.domain.voice.dto.res.VoiceAnalysisResultRes;
 import com.speakfit.backend.domain.voice.service.VoiceAnalysisService;
 import com.speakfit.backend.global.apiPayload.response.ApiResponse;
 import com.speakfit.backend.global.apiPayload.response.code.SuccessCode;
@@ -22,6 +22,14 @@ public class VoiceAnalysisController {
             @RequestParam(value = "voiceFile") MultipartFile voiceFile) {
 
         VoiceAnalysisResultRes result = voiceAnalysisService.requestVoiceAnalysis(voiceFile);
+        return ResponseEntity.ok(ApiResponse.onSuccess(SuccessCode.OK, result));
+    }
+
+    // 사용자 음색 분석 결과 조회 API
+    @GetMapping("/{analysisId}")
+    public ResponseEntity<ApiResponse<VoiceAnalysisResultRes>> getVoiceAnalysisResult(
+            @PathVariable("analysisId") Long analysisId) {
+        VoiceAnalysisResultRes result = voiceAnalysisService.getVoiceAnalysisResult(analysisId);
         return ResponseEntity.ok(ApiResponse.onSuccess(SuccessCode.OK, result));
     }
 }

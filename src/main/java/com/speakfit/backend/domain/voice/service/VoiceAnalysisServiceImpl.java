@@ -6,7 +6,7 @@ import com.speakfit.backend.domain.practice.repository.AnalysisResultRepository;
 import com.speakfit.backend.domain.practice.repository.PracticeRepository;
 import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.domain.user.repository.UserRepository;
-import com.speakfit.backend.domain.voice.DTO.res.VoiceAnalysisResultRes;
+import com.speakfit.backend.domain.voice.dto.res.VoiceAnalysisResultRes;
 import com.speakfit.backend.domain.voice.exception.VoiceException;
 import com.speakfit.backend.domain.voice.exception.VoiceExceptionStatus;
 import com.speakfit.backend.global.infra.s3.S3Service;
@@ -35,24 +35,21 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
     private final WebClient pythonWebClient;
     private final AnalysisResultRepository analysisResultRepository;
     private final PracticeRepository practiceRepository;
-    private final UserRepository userRepository; // User 엔티티 저장을 위해 추가
+    private final UserRepository userRepository;
 
     @Override
     @Transactional
     public VoiceAnalysisResultRes requestVoiceAnalysis(MultipartFile voiceFile) {
-        // 1. 음성 데이터 파일 검증
         if (voiceFile == null || voiceFile.isEmpty()) {
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
         }
 
-        // 2. 데이터 부족 검증 로직
         if (isDataInsufficient(voiceFile)) {
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
         }
 
         Path tempPath = null;
         try {
-            // 3. 임시 파일 생성 및 Python 서버 API 호출 준비
             tempPath = Files.createTempFile("voice", ".mp3");
             File tempFile = tempPath.toFile();
             voiceFile.transferTo(tempFile);
@@ -60,7 +57,6 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
             MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
             body.add("voiceFile", new FileSystemResource(tempFile));
 
-            // 4. Python 서버 API 호출
             VoiceAnalysisResultRes response = pythonWebClient.post()
                     .uri("/voice-analysis")
                     .contentType(MediaType.MULTIPART_FORM_DATA)
@@ -69,30 +65,46 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
                     .bodyToMono(VoiceAnalysisResultRes.class)
                     .block();
 
-            // 5. 분석 완료 시 처리 로직
             if (response != null && "COMPLETED".equals(response.getStatus())) {
                 Long recordId = response.getAnalysisId();
                 PracticeRecord practiceRecord = practiceRepository.findById(recordId)
                         .orElseThrow(() -> new IllegalArgumentException("해당하는 연습 기록이 없습니다."));
 
-                // 분석 결과 엔티티 생성 및 저장
+                Double avgWpm = null;
+                Double avgPitch = null;
+                if (response.getUserAverageMetrics() != null) {
+                    avgWpm = response.getUserAverageMetrics().getAvgWPM();
+                    avgPitch = response.getUserAverageMetrics().getAvgPitch();
+                }
+
+                String mostSimilarStyle = null;
+                Integer matchingRate = null;
+                String voiceStyleDescription = null;
+
+                if (response.getVoiceStyle() != null) {
+                    mostSimilarStyle = response.getVoiceStyle().getMostSimilarStyle();
+                    matchingRate = response.getVoiceStyle().getMatchingRate();
+                    voiceStyleDescription = response.getVoiceStyle().getDescription();
+                }
+
                 AnalysisResult analysisResult = AnalysisResult.builder()
                         .recordId(recordId)
                         .practiceRecord(practiceRecord)
-                        .avgWpm(response.getAvgWpm())
-                        .avgPitch(response.getAvgPitch())
+                        .avgWpm(avgWpm)
+                        .avgPitch(avgPitch)
+                        .mostSimilarStyle(mostSimilarStyle)
+                        .matchingRate(matchingRate)
+                        .voiceStyleDescription(voiceStyleDescription)
                         .build();
 
                 analysisResultRepository.save(analysisResult);
 
-                // 6. User 엔티티의 최초 기본 음색 저장 로직 (최초 1회만 저장)
                 User user = practiceRecord.getUser();
 
-                // 두 항목이 모두 null일 때만 업데이트하도록 변경
                 if (user.getDefaultVoice() == null ||
                         (user.getDefaultVoice().getDefaultPitch() == null && user.getDefaultVoice().getDefaultWpm() == null)) {
 
-                    user.updateDefaultVoiceMetrics(response.getAvgPitch(), response.getAvgWpm());
+                    user.updateDefaultVoiceMetrics(avgPitch, avgWpm);
                     userRepository.save(user);
                 }
             }
@@ -105,12 +117,10 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
             }
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
         } catch (WebClientRequestException e) {
-            // 7. 네트워크 예외에 대한 일관된 예외 처리
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
         } catch (IOException e) {
             throw new VoiceException(VoiceExceptionStatus.VOICE_UNPROCESSABLE);
         } finally {
-            // 8. 예외 발생 여부와 상관없이 임시 파일 삭제를 보장하는 블록
             if (tempPath != null) {
                 try {
                     Files.deleteIfExists(tempPath);
@@ -122,7 +132,31 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
     }
 
     private boolean isDataInsufficient(MultipartFile file) {
-        // 파일의 크기가 최소 요구사항에 미치지 못하는지 확인
         return file.getSize() < 50 * 1024;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public VoiceAnalysisResultRes getVoiceAnalysisResult(Long analysisId) {
+        AnalysisResult analysisResult = analysisResultRepository.findById(analysisId)
+                .orElseThrow(() -> new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_NOT_FOUND));
+
+        Double wpm = analysisResult.getAvgWpm();
+        Double pitch = analysisResult.getAvgPitch();
+
+        return VoiceAnalysisResultRes.builder()
+                .analysisId(analysisResult.getRecordId())
+                .status("COMPLETED")
+                .progress(100)
+                .voiceStyle(VoiceAnalysisResultRes.VoiceStyle.builder()
+                        .mostSimilarStyle(analysisResult.getMostSimilarStyle())
+                        .matchingRate(analysisResult.getMatchingRate())
+                        .description(analysisResult.getVoiceStyleDescription())
+                        .build())
+                .userAverageMetrics(VoiceAnalysisResultRes.UserAverageMetrics.builder()
+                        .avgPitch(pitch)
+                        .avgWPM(wpm)
+                        .build())
+                .build();
     }
 }
