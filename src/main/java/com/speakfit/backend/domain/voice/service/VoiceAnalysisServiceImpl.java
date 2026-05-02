@@ -11,7 +11,6 @@ import com.speakfit.backend.domain.voice.exception.VoiceException;
 import com.speakfit.backend.domain.voice.exception.VoiceExceptionStatus;
 import com.speakfit.backend.global.infra.s3.S3Service;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -38,24 +37,9 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
     private final PracticeRepository practiceRepository;
     private final UserRepository userRepository;
 
-    @Value("${app.voice-analysis.stub:false}")
-    private boolean useStub;
-
     @Override
     @Transactional
     public VoiceAnalysisResultRes requestVoiceAnalysis(MultipartFile voiceFile) {
-        if (useStub) {
-            return VoiceAnalysisResultRes.builder()
-                    .analysisId(1L)
-                    .status("COMPLETED")
-                    .progress(100)
-                    .userAverageMetrics(VoiceAnalysisResultRes.UserAverageMetrics.builder()
-                            .avgPitch(200.0)
-                            .avgWPM(150.0)
-                            .build())
-                    .build();
-        }
-
         if (voiceFile == null || voiceFile.isEmpty()) {
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
         }
@@ -86,11 +70,31 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
                 PracticeRecord practiceRecord = practiceRepository.findById(recordId)
                         .orElseThrow(() -> new IllegalArgumentException("해당하는 연습 기록이 없습니다."));
 
+                Double avgWpm = null;
+                Double avgPitch = null;
+                if (response.getUserAverageMetrics() != null) {
+                    avgWpm = response.getUserAverageMetrics().getAvgWPM();
+                    avgPitch = response.getUserAverageMetrics().getAvgPitch();
+                }
+
+                String mostSimilarStyle = null;
+                Integer matchingRate = null;
+                String voiceStyleDescription = null;
+
+                if (response.getVoiceStyle() != null) {
+                    mostSimilarStyle = response.getVoiceStyle().getMostSimilarStyle();
+                    matchingRate = response.getVoiceStyle().getMatchingRate();
+                    voiceStyleDescription = response.getVoiceStyle().getDescription();
+                }
+
                 AnalysisResult analysisResult = AnalysisResult.builder()
                         .recordId(recordId)
                         .practiceRecord(practiceRecord)
-                        .avgWpm(response.getUserAverageMetrics().getAvgWPM())
-                        .avgPitch(response.getUserAverageMetrics().getAvgPitch())
+                        .avgWpm(avgWpm)
+                        .avgPitch(avgPitch)
+                        .mostSimilarStyle(mostSimilarStyle)
+                        .matchingRate(matchingRate)
+                        .voiceStyleDescription(voiceStyleDescription)
                         .build();
 
                 analysisResultRepository.save(analysisResult);
@@ -99,7 +103,8 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
 
                 if (user.getDefaultVoice() == null ||
                         (user.getDefaultVoice().getDefaultPitch() == null && user.getDefaultVoice().getDefaultWpm() == null)) {
-                    user.updateDefaultVoiceMetrics(response.getUserAverageMetrics().getAvgPitch(), response.getUserAverageMetrics().getAvgWPM());
+
+                    user.updateDefaultVoiceMetrics(avgPitch, avgWpm);
                     userRepository.save(user);
                 }
             }
@@ -136,18 +141,21 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
         AnalysisResult analysisResult = analysisResultRepository.findById(analysisId)
                 .orElseThrow(() -> new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_NOT_FOUND));
 
+        Double wpm = analysisResult.getAvgWpm();
+        Double pitch = analysisResult.getAvgPitch();
+
         return VoiceAnalysisResultRes.builder()
                 .analysisId(analysisResult.getRecordId())
                 .status("COMPLETED")
                 .progress(100)
                 .voiceStyle(VoiceAnalysisResultRes.VoiceStyle.builder()
-                        .mostSimilarStyle("신중한형")
-                        .matchingRate(92)
-                        .description(String.format("%s 님의 목소리는 신뢰감을 주는 중저음 톤으로, '신중한 형' 스타일과 92%% 일치합니다.", analysisResult.getPracticeRecord().getUser().getNickname()))
+                        .mostSimilarStyle(analysisResult.getMostSimilarStyle())
+                        .matchingRate(analysisResult.getMatchingRate())
+                        .description(analysisResult.getVoiceStyleDescription())
                         .build())
                 .userAverageMetrics(VoiceAnalysisResultRes.UserAverageMetrics.builder()
-                        .avgPitch(analysisResult.getAvgPitch())
-                        .avgWPM(analysisResult.getAvgWpm())
+                        .avgPitch(pitch)
+                        .avgWPM(wpm)
                         .build())
                 .build();
     }
