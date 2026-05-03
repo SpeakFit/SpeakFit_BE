@@ -10,5 +10,5 @@ public interface FeedbackService {
     GenerateFeedbackRes generateFeedback(GenerateFeedbackReq.Request request,Long userId);
 
     // 피드백 상세 조회 요청 메소드 정의
-    GetFeedbackDetailRes getFeedbackDetail(Long feedbackId, Long userId);
+    GetFeedbackDetailRes getSummaryFeedbackDetail(Long feedbackId, Long userId);
 }
