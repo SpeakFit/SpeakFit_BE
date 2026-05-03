@@ -2,6 +2,46 @@ import json
 from app.core.config import model
 from app.schemas.models import AnalyzeRequest
 
+SUMMARY_FIELDS = {"wpmSummary", "energySummary", "goalSummary", "symbolFeedback"}
+FEEDBACK_FIELDS = {"wpmFeedback", "energyFeedback", "pauseFeedback", "goalFeedback"}
+
+def _clip_text(value, max_length):
+    if not isinstance(value, str):
+        return value
+
+    text = " ".join(value.split())
+    if len(text) <= max_length:
+        return text
+
+    return text[:max_length].rstrip() + "..."
+
+def _first_sentence(value, max_length):
+    if not isinstance(value, str):
+        return value
+
+    text = " ".join(value.split())
+    for separator in [".", "!", "?", "다.", "요."]:
+        index = text.find(separator)
+        if index >= 0:
+            return _clip_text(text[:index + len(separator)], max_length)
+
+    return _clip_text(text, max_length)
+
+def _normalize_feedback_payload(payload):
+    if not isinstance(payload, dict):
+        return payload
+
+    normalized = dict(payload)
+    normalized["aiSummary"] = _first_sentence(normalized.get("aiSummary"), 70)
+
+    for field in SUMMARY_FIELDS:
+        normalized[field] = _clip_text(normalized.get(field), 12)
+
+    for field in FEEDBACK_FIELDS:
+        normalized[field] = _first_sentence(normalized.get(field), 55)
+
+    return normalized
+
 def generate_ai_feedback(features, req: AnalyzeRequest):
     """Gemini를 사용한 심층 피드백 생성"""
     if not model:
@@ -39,11 +79,18 @@ def generate_ai_feedback(features, req: AnalyzeRequest):
     - goalSimilarityScore: 목표 스타일과의 유사도 점수 (0~100 사이의 실수)
     - goalSummary: 목표 스타일 달성 정도 요약
     - goalFeedback: 목표 스타일에 더 가까워지기 위한 핵심 팁
+    
+    [UI 길이 제한]
+    반드시 JSON 객체 하나만 출력하세요. Markdown, 설명문, 코드블록은 금지합니다.
+    화면 카드 크기가 작으므로 모든 문장은 매우 짧게 작성하세요.
+    aiSummary는 1문장 70자 이내입니다.
+    wpmSummary, energySummary, symbolFeedback, goalSummary는 12자 이내의 짧은 상태 문구입니다.
+    wpmFeedback, energyFeedback, pauseFeedback, goalFeedback은 각각 1문장 55자 이내입니다.
     """
     try:
         response = model.generate_content(prompt)
         json_str = response.text.replace("```json", "").replace("```", "").strip()
-        return json.loads(json_str)
+        return _normalize_feedback_payload(json.loads(json_str))
     except Exception as e:
         print(f"[Python] Gemini 피드백 생성 실패: {e}")
         return {"aiSummary": "분석 오류가 발생했습니다.", "goalSimilarityScore": 0.0}

@@ -491,6 +491,8 @@ async def run_analysis(req: AnalyzeRequest):
             "sentenceResults": sentence_results, 
             "issues": issue_results
         }
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[Python ERROR] Unexpected error during analysis: {e}")
         import traceback
