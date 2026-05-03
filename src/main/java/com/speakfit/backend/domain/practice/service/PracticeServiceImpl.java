@@ -510,7 +510,9 @@ public class PracticeServiceImpl implements PracticeService {
 
     // 오디오 파일 저장 헬퍼 메서드
     private String uploadAudioFile(Long practiceId, MultipartFile file) {
-        if (file == null || file.isEmpty()) return null;
+        if (file == null || file.isEmpty()) {
+            throw new CustomException(PracticeErrorCode.PRACTICE_AUDIO_EMPTY);
+        }
         try {
             Path uploadDirPath = Paths.get("uploads/audio/").toAbsolutePath().normalize();
             if (!Files.exists(uploadDirPath)) Files.createDirectories(uploadDirPath);
@@ -520,7 +522,7 @@ public class PracticeServiceImpl implements PracticeService {
             Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
             return filePath.toString();
         } catch (IOException e) {
-            throw new RuntimeException("파일 저장 중 오류가 발생했습니다.", e);
+            throw new CustomException(PracticeErrorCode.PRACTICE_AUDIO_UPLOAD_FAILED);
         }
     }
 
