@@ -37,7 +37,7 @@ from app.core.config import (
     GOOGLE_STT_STREAM_ALLOWED_ENCODINGS,
     GOOGLE_STT_STREAM_MAX_CHUNK_BYTES, GOOGLE_STT_STREAM_MAX_SECONDS,
     GOOGLE_STT_STREAM_QUEUE_SIZE,
-    JWT_SECRET
+    JWT_SECRET, UPLOAD_ROOT
 )
 
 router = APIRouter()
@@ -89,6 +89,7 @@ class GoogleStreamingSttSession:
         self.closed = threading.Event()
         self.confirmed_global_word_index = -1
         self.last_partial_global_word_index = -1
+        self.word_results_by_index = {}
         self.final_transcript = ""
         self.started_at = time.monotonic()
 
@@ -156,7 +157,6 @@ class GoogleStreamingSttSession:
             streaming_config = speech.StreamingRecognitionConfig(config=config, interim_results=GOOGLE_STT_INTERIM_RESULTS)
 
             def requests():
-                yield speech.StreamingRecognizeRequest(streaming_config=streaming_config)
                 while not self.closed.is_set():
                     if self.elapsed_seconds() >= GOOGLE_STT_STREAM_MAX_SECONDS:
                         self.closed.set()
@@ -176,7 +176,7 @@ class GoogleStreamingSttSession:
                     if chunk is None: break
                     yield speech.StreamingRecognizeRequest(audio_content=chunk)
 
-            responses = client.streaming_recognize(requests=requests())
+            responses = client.streaming_recognize(streaming_config, requests=requests())
             print(f"[Python] STT Stream started for practice {self.practice_id}. Waiting for responses...", flush=True)
 
             for response in responses:
@@ -220,6 +220,7 @@ class GoogleStreamingSttSession:
 
     def build_highlight_message(self, transcript, is_final, confidence):
         current_index = self.estimate_current_global_word_index(transcript)
+        word_results = self.build_word_results(transcript)
         if is_final:
             self.confirmed_global_word_index = max(self.confirmed_global_word_index, current_index)
             self.last_partial_global_word_index = self.confirmed_global_word_index
@@ -237,7 +238,64 @@ class GoogleStreamingSttSession:
             "matchedWord": matched_word.get("text") if matched_word else None,
             "isFinal": bool(is_final),
             "confidence": float(confidence or 0.0),
+            "wordResults": word_results,
         }
+
+    def build_word_results(self, transcript):
+        if not self.script_words or not transcript:
+            return list(self.word_results_by_index.values())
+
+        transcript_tokens = [
+            (token, normalize_match_text(token))
+            for token in transcript.split()
+            if normalize_match_text(token)
+        ]
+        if not transcript_tokens:
+            return list(self.word_results_by_index.values())
+
+        # 현재 분석 중인 세그먼트 내에서의 검색 시작 위치
+        search_start = max(self.confirmed_global_word_index + 1, 0)
+        # 이번 루프에서 마지막으로 매칭된 단어의 인덱스를 추적하여 간격을 찾습니다.
+        last_matched_in_loop = search_start - 1
+
+        for spoken_text, normalized_token in transcript_tokens[-8:]:
+            match = find_realtime_token_feedback(self.script_words, normalized_token, search_start)
+            if not match:
+                continue
+
+            script_word, score = match
+            global_word_index = script_word.get("globalWordIndex")
+            if global_word_index is None:
+                continue
+
+            # --- 간격(Gap) 처리: 건너뛴 단어 감지 ---
+            # 만약 현재 매칭된 단어가 예상 위치보다 뒤에 있다면, 그 사이의 단어들을 오답(건너뜀)으로 처리합니다.
+            for skipped_idx in range(last_matched_in_loop + 1, global_word_index):
+                if skipped_idx not in self.word_results_by_index:
+                    skipped_word = self.script_words[skipped_idx]
+                    self.word_results_by_index[skipped_idx] = {
+                        "globalWordIndex": skipped_idx,
+                        "expectedWord": skipped_word.get("text") or "",
+                        "spokenWord": "(건너뜀)",
+                        "matchScore": 0.0,
+                        "isCorrect": False,
+                    }
+
+            # 현재 단어 결과 기록 (점수가 낮아도 포함시켜서 빨간색으로 표시되게 함)
+            word_result = {
+                "globalWordIndex": global_word_index,
+                "expectedWord": script_word.get("text") or "",
+                "spokenWord": spoken_text,
+                "matchScore": round(float(score), 3),
+                "isCorrect": score >= 0.75,
+            }
+            self.word_results_by_index[global_word_index] = word_result
+            
+            # 다음 토큰은 현재 매칭된 단어 이후부터 검색하여 순서를 보장합니다.
+            last_matched_in_loop = global_word_index
+            search_start = global_word_index + 1
+
+        return list(self.word_results_by_index.values())
 
     def estimate_current_global_word_index(self, transcript):
         if not self.script_words or not transcript:
@@ -293,21 +351,49 @@ def find_script_word_by_global_index(script_words, global_word_index):
 
 
 def find_realtime_token_match(script_words, token, search_start):
+    match = find_realtime_token_feedback(script_words, token, search_start)
+    if not match:
+        return None
+
+    script_word, score = match
+    return script_word if score >= 0.72 else None
+
+
+def find_realtime_token_feedback(script_words, token, search_start):
     best_word = None
-    best_score = 0.0
-    for script_word in script_words[search_start:search_start + 16]:
+    best_score = -1.0
+    
+    # [설계 반영] 탐색 범위를 앞뒤로 확장 (과거 2단어 ~ 미래 10단어)
+    # 지연된 인식(STT Lag)이나 짧은 건너뛰기를 모두 수용할 수 있는 범위입니다.
+    start_idx = max(search_start - 2, 0)
+    end_idx = min(search_start + 11, len(script_words))
+    
+    for script_word in script_words[start_idx:end_idx]:
         script_text = normalize_match_text(script_word.get("normalizedText") or script_word.get("text"))
         if not script_text:
             continue
 
-        score = calculate_realtime_similarity(script_text, token)
-        order_penalty = max(script_word.get("globalWordIndex", 0) - search_start, 0) * 0.01
-        adjusted_score = score - order_penalty
+        # 기본 유사도 점수 계산
+        base_score = calculate_realtime_similarity(script_text, token)
+        
+        # [설계 반영] 거리 기반 페널티 부여
+        # 현재 예상 위치(search_start)에서 멀어질수록 감점하여, 
+        # 비슷한 단어가 여러 개일 경우 가장 가까운 단어를 우선 매칭합니다.
+        distance = abs(script_word.get("globalWordIndex", 0) - search_start)
+        distance_penalty = distance * 0.04
+        
+        adjusted_score = base_score - distance_penalty
+        
         if adjusted_score > best_score:
             best_score = adjusted_score
             best_word = script_word
 
-    return best_word if best_score >= 0.72 else None
+    if not best_word or best_score < 0.4: # 최소 일치 기준 미달 시 무시
+        return None
+
+    # 반환할 때는 감점되지 않은 원본 유사도 점수를 기반으로 한 피드백 정보를 넘깁니다.
+    # 단, 결과 판단은 adjusted_score로 수행하여 '위치 적합성'을 보장했습니다.
+    return best_word, max(best_score + (abs(best_word.get("globalWordIndex", 0) - search_start) * 0.04), 0.0)
 
 
 def calculate_realtime_similarity(script_text, spoken_text):
@@ -365,27 +451,51 @@ def decode_base64url(value):
 
 @router.post("/analyze")
 async def run_analysis(req: AnalyzeRequest):
-    if not os.path.exists(req.audioUrl):
-        raise HTTPException(status_code=404, detail="Audio file not found")
+    # Spring 서버에서 전달받은 audioUrl은 로컬 파일 경로입니다.
+    # 상대 경로인 경우 UPLOAD_ROOT를 기준으로 절대 경로를 만듭니다.
+    audio_path = req.audioUrl
+    if not os.path.isabs(audio_path):
+        audio_path = os.path.join(UPLOAD_ROOT, audio_path.replace("uploads/", ""))
 
-    features = analyze_voice_features(req.audioUrl)
-    if not features:
-        raise HTTPException(status_code=500, detail="Analysis failed")
+    print(f"[Python] Starting analysis for file: {audio_path}")
+    
+    if not os.path.exists(audio_path):
+        print(f"[Python ERROR] Audio file not found at: {audio_path}")
+        raise HTTPException(status_code=404, detail=f"Audio file not found: {audio_path}")
+    
+    try:
+        # 1. 음성 특징 분석 (Librosa 등 사용)
+        features = analyze_voice_features(audio_path)
+        if not features:
+            raise HTTPException(status_code=500, detail="Voice feature analysis failed")
 
-    stt_words = transcribe_audio(req.audioUrl, features.get("durationSec"))
-    if stt_words is None:
-        raise HTTPException(status_code=502, detail="STT failed or is disabled.")
-    if stt_words:
-        print(f"[Python] 분석 STT 단어 타임스탬프 사용 가능: words={len(stt_words)}")
-    else:
-        print("[Python] 분석 STT 인식 결과 없음: 대본 단어를 skipped로 처리")
+        # 2. STT 수행 (Gemini 폴백이 적용된 새로운 transcribe_audio 사용)
+        duration = features.get("durationSec")
+        stt_words = transcribe_audio(audio_path, duration)
+        
+        if stt_words is None:
+            print("[Python ERROR] STT process failed completely.")
+            raise HTTPException(status_code=502, detail="STT processing failed")
 
-    word_results = build_aligned_word_results(req.scriptWords, stt_words)
-    sentence_results = build_sentence_results(req.scriptWords, word_results, features)
-    issue_results = build_issue_results(sentence_results)
-    ai_feedback = generate_ai_feedback(features, req)
+        # 3. 결과 조립
+        word_results = build_aligned_word_results(req.scriptWords, stt_words)
+        sentence_results = build_sentence_results(req.scriptWords, word_results, features)
+        issue_results = build_issue_results(sentence_results)
+        ai_feedback = generate_ai_feedback(features, req)
 
-    return {**features, **ai_feedback, "wordResults": word_results, "sentenceResults": sentence_results, "issues": issue_results}
+        print(f"[Python] Analysis successful for practice {req.practiceId}")
+        return {
+            **features, 
+            **ai_feedback, 
+            "wordResults": word_results, 
+            "sentenceResults": sentence_results, 
+            "issues": issue_results
+        }
+    except Exception as e:
+        print(f"[Python ERROR] Unexpected error during analysis: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/scripts/mark")
 async def mark_script(req: MarkRequest):

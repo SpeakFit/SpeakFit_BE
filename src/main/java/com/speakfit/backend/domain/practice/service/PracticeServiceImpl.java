@@ -41,6 +41,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -225,13 +226,20 @@ public class PracticeServiceImpl implements PracticeService {
                 .flatMap(sentence -> sentence.getWords().stream())
                 .sorted(Comparator.comparing(StartPracticeRes.WordRes::getGlobalWordIndex))
                 .toList();
+        Map<Integer, StartPracticeRes.ContentRes> readingMarkByIndex = parseMarkedContent(record.getScript().getMarkedContent())
+                .stream()
+                .collect(Collectors.toMap(StartPracticeRes.ContentRes::getIndex, content -> content, (left, right) -> left));
         List<StartPracticeRes.ContentRes> contentList = scriptWords.stream()
-                .map(word -> StartPracticeRes.ContentRes.builder()
-                        .index(word.getGlobalWordIndex())
-                        .word(word.getText())
-                        .hasBreak(false)
-                        .emphasis(false)
-                        .build())
+                .map(word -> {
+                    StartPracticeRes.ContentRes readingMark = readingMarkByIndex.get(word.getGlobalWordIndex());
+
+                    return StartPracticeRes.ContentRes.builder()
+                            .index(word.getGlobalWordIndex())
+                            .word(word.getText())
+                            .hasBreak(readingMark != null && readingMark.isHasBreak())
+                            .emphasis(readingMark != null && readingMark.isEmphasis())
+                            .build();
+                })
                 .toList();
         String webSocketToken = jwtProvider.createPracticeWebSocketToken(userId, record.getId());
         String webSocketUrl = webSocketBaseUrl + record.getId()
