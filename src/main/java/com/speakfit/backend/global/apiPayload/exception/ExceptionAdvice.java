@@ -8,10 +8,12 @@ import com.speakfit.backend.global.apiPayload.response.code.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 
 @Slf4j
 @RestControllerAdvice
@@ -60,11 +62,25 @@ public class ExceptionAdvice {
                 .body(ApiResponse.onFailure(ErrorCode.VALIDATION_ERROR, null));
     }
 
+    @ExceptionHandler(BindException.class)
+    public ResponseEntity<ApiResponse<Object>> handleBind(BindException e) {
+        return ResponseEntity
+                .status(ErrorCode.VALIDATION_ERROR.getHttpStatus())
+                .body(ApiResponse.onFailure(ErrorCode.VALIDATION_ERROR, null));
+    }
+
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ApiResponse<Object>> handleMaxUploadSizeExceeded(MaxUploadSizeExceededException e) {
         return ResponseEntity
                 .status(ErrorCode.PAYLOAD_TOO_LARGE.getHttpStatus())
                 .body(ApiResponse.onFailure(ErrorCode.PAYLOAD_TOO_LARGE, null));
+    }
+
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<ApiResponse<Object>> handleMultipart(MultipartException e) {
+        return ResponseEntity
+                .status(ErrorCode.INVALID_REQUEST.getHttpStatus())
+                .body(ApiResponse.onFailure(ErrorCode.INVALID_REQUEST, null));
     }
 
     @ExceptionHandler(Exception.class)
