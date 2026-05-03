@@ -395,6 +395,7 @@ public class PracticeServiceImpl implements PracticeService {
                 .practiceIssues(issues.stream().map(i -> GetPracticeReportRes.PracticeIssueRes.builder()
                         .scriptSentenceId(i.getScriptSentence() != null ? i.getScriptSentence().getId() : null)
                         .sentenceIndex(i.getSentenceIndex())
+                        .sentenceText(i.getScriptSentence() != null ? i.getScriptSentence().getOriginalText() : null)
                         .startIndex(i.getStartIndex())
                         .endIndex(i.getEndIndex())
                         .issueType(i.getIssueType())

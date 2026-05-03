@@ -91,6 +91,7 @@ public class GetPracticeReportRes {
     public static class PracticeIssueRes {
         private Long scriptSentenceId;
         private Integer sentenceIndex;
+        private String sentenceText;
         private Integer startIndex;
         private Integer endIndex;
         private PracticeIssueType issueType;
