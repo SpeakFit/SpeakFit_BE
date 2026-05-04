@@ -42,6 +42,31 @@ def _normalize_feedback_payload(payload):
 
     return normalized
 
+def _parse_json_payload(text):
+    clean_text = text.replace("```json", "").replace("```", "").strip()
+
+    try:
+        return json.loads(clean_text)
+    except json.JSONDecodeError:
+        start_index = clean_text.find("{")
+        end_index = clean_text.rfind("}")
+
+        if start_index < 0 or end_index < start_index:
+            raise
+
+        return json.loads(clean_text[start_index:end_index + 1])
+
+def _fallback_script_response(field_name, response_text=None):
+    fallback_text = (response_text or "").replace("```json", "").replace("```", "").strip()
+
+    if fallback_text.startswith("{") and fallback_text.endswith("}"):
+        fallback_text = ""
+
+    if not fallback_text:
+        fallback_text = "AI 대본 생성 중 오류가 발생했습니다. 입력 내용을 확인한 뒤 다시 시도해 주세요."
+
+    return {field_name: fallback_text}
+
 def generate_ai_feedback(features, req: AnalyzeRequest):
     """Gemini를 사용한 심층 피드백 생성"""
     if not model:
@@ -103,9 +128,17 @@ async def generate_script_ai(req):
     발표자가 바로 읽을 수 있는 문장형 대본으로 JSON 형식으로 출력해주세요.
     {{ "generatedScript": "내용" }}
     """
-    response = model.generate_content(prompt)
-    json_str = response.text.replace("```json", "").replace("```", "").strip()
-    return json.loads(json_str)
+    try:
+        response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
+        payload = _parse_json_payload(response.text)
+
+        if not isinstance(payload, dict) or not payload.get("generatedScript"):
+            return _fallback_script_response("generatedScript", response.text)
+
+        return payload
+    except Exception as e:
+        print(f"[Python] Gemini 대본 생성 실패: {e}")
+        return _fallback_script_response("generatedScript")
 
 async def update_script_ai(req):
     prompt = f"""
@@ -116,9 +149,17 @@ async def update_script_ai(req):
     최적화된 대본을 JSON 형식으로 출력해주세요.
     {{ "optimizedScript": "내용" }}
     """
-    response = model.generate_content(prompt)
-    json_str = response.text.replace("```json", "").replace("```", "").strip()
-    return json.loads(json_str)
+    try:
+        response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
+        payload = _parse_json_payload(response.text)
+
+        if not isinstance(payload, dict) or not payload.get("optimizedScript"):
+            return _fallback_script_response("optimizedScript", response.text)
+
+        return payload
+    except Exception as e:
+        print(f"[Python] Gemini 대본 최적화 실패: {e}")
+        return _fallback_script_response("optimizedScript")
 
 async def mark_script_ai(content):
     prompt = f"""

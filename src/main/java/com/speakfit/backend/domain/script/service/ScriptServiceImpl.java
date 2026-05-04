@@ -3,9 +3,11 @@ package com.speakfit.backend.domain.script.service;
 import com.speakfit.backend.domain.script.dto.req.AddScriptReq;
 import com.speakfit.backend.domain.script.dto.req.AiGenerateScriptReq;
 import com.speakfit.backend.domain.script.dto.req.AiUpdateScriptReq;
+import com.speakfit.backend.domain.script.dto.req.UpdateScriptReq;
 import com.speakfit.backend.domain.script.dto.res.AddScriptRes;
 import com.speakfit.backend.domain.script.dto.res.AiGenerateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.AiUpdateScriptRes;
+import com.speakfit.backend.domain.script.dto.res.UpdateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
@@ -196,6 +198,36 @@ public class ScriptServiceImpl implements ScriptService {
         deleteDirectoryQuietly(Paths.get("uploads/ppt/" + scriptId).toAbsolutePath().normalize());
         return DeleteScriptRes.Response.builder()
                 .id(scriptId)
+                .build();
+    }
+
+    // 발표 대본 수정 기능 구현
+    @Override
+    @Transactional
+    public UpdateScriptRes.Response updateScript(Long scriptId, UpdateScriptReq.Request req, Long userId) {
+        Script script = scriptRepository.findByIdWithUser(scriptId)
+                .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
+
+        if (!script.getUser().getId().equals(userId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
+        }
+
+        // 대본 내용이 변경된 경우에만 낭독 기호 대본 새로 생성
+        String markedContent = script.getMarkedContent();
+        if (!script.getContent().equals(req.getContent())) {
+            markedContent = aiAnalysisService.generateMarkedContent(req.getContent());
+            if (markedContent == null || markedContent.isBlank()) {
+                markedContent = req.getContent();
+            }
+        }
+
+        script.update(req.getTitle(), req.getContent(), markedContent);
+        Script updatedScript = scriptRepository.save(script);
+
+        return UpdateScriptRes.Response.builder()
+                .id(updatedScript.getId())
+                .title(updatedScript.getTitle())
+                .content(updatedScript.getContent())
                 .build();
     }
 

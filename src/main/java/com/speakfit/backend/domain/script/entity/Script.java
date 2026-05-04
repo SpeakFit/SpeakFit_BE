@@ -102,6 +102,12 @@ public class Script extends BaseEntity {
         this.scriptSentences.clear();
     }
 
+    public void update(String title, String content, String markedContent) {
+        this.title = title;
+        this.content = content;
+        this.markedContent = markedContent;
+    }
+
     public void updateMarkedContent(String markedContent) {
         this.markedContent = markedContent;
     }

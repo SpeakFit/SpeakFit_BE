@@ -4,9 +4,11 @@ package com.speakfit.backend.domain.script.controller;
 import com.speakfit.backend.domain.script.dto.req.AddScriptReq;
 import com.speakfit.backend.domain.script.dto.req.AiGenerateScriptReq;
 import com.speakfit.backend.domain.script.dto.req.AiUpdateScriptReq;
+import com.speakfit.backend.domain.script.dto.req.UpdateScriptReq;
 import com.speakfit.backend.domain.script.dto.res.AddScriptRes;
 import com.speakfit.backend.domain.script.dto.res.AiGenerateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.AiUpdateScriptRes;
+import com.speakfit.backend.domain.script.dto.res.UpdateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
@@ -59,6 +61,12 @@ public class ScriptController {
     @DeleteMapping("/{scriptId}")
     public ApiResponse<DeleteScriptRes.Response> deleteScript(@PathVariable @Positive Long scriptId, @AuthenticationPrincipal AuthPrincipal authPrincipal) {
         return ApiResponse.onSuccess(SuccessCode.OK, scriptService.deleteScript(scriptId, authPrincipal.getUserId()));
+    }
+
+    // 발표 대본 수정 구현
+    @PatchMapping("/{scriptId}")
+    public ApiResponse<UpdateScriptRes.Response> updateScript(@PathVariable @Positive Long scriptId, @RequestBody @Valid UpdateScriptReq.Request request, @AuthenticationPrincipal AuthPrincipal authPrincipal) {
+        return ApiResponse.onSuccess(SuccessCode.OK, scriptService.updateScript(scriptId, request, authPrincipal.getUserId()));
     }
 
     // AI 발표 대본 초안 생성 구현
