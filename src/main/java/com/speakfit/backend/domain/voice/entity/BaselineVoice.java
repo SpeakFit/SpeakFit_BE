@@ -52,6 +52,10 @@ public class BaselineVoice extends BaseEntity {
     @Column(name = "analysis_raw_json", columnDefinition = "TEXT")
     private String analysisRawJson;
 
+    public void updateAudioUrl(String audioUrl) {
+        this.audioUrl = audioUrl;
+    }
+
     public void complete(Double avgPitch, Double avgWpm, Double avgIntensity, Double avgZcr,
                          Double pauseRatio, String analysisRawJson) {
         this.avgPitch = avgPitch;

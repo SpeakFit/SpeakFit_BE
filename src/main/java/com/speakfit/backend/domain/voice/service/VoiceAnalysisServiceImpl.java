@@ -41,7 +41,7 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
     private final BaselineVoiceRepository baselineVoiceRepository;
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = VoiceException.class)
     public VoiceAnalysisResultRes requestVoiceAnalysis(MultipartFile voiceFile, Long userId) {
         // 1. 온보딩 기준 음성으로 쓸 수 있는 파일인지 먼저 검증
         if (voiceFile == null || voiceFile.isEmpty()) {
@@ -53,21 +53,19 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
         }
 
         Path tempPath = null;
+        BaselineVoice baselineVoice = null;
         try {
             // 2. 로그인 사용자를 기준으로 기준 음성 도메인 데이터를 준비
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> new VoiceException(VoiceExceptionStatus.VOICE_USER_NOT_FOUND));
 
-            String audioUrl = s3Service.upload(voiceFile, "voice/baseline/" + userId);
-            baselineVoiceRepository.findAllByUserIdAndIsActiveTrue(userId)
-                    .forEach(BaselineVoice::deactivate);
-
-            BaselineVoice baselineVoice = baselineVoiceRepository.save(BaselineVoice.builder()
+            baselineVoice = baselineVoiceRepository.save(BaselineVoice.builder()
                     .user(user)
-                    .audioUrl(audioUrl)
-                    .status(BaselineVoiceStatus.PENDING)
-                    .isActive(false)
                     .build());
+
+            String audioUrl = s3Service.upload(voiceFile, "voice/baseline/" + userId);
+            baselineVoice.updateAudioUrl(audioUrl);
+            baselineVoiceRepository.save(baselineVoice);
 
             // 3. Python 분석 서버에 전달할 임시 파일 생성
             tempPath = Files.createTempFile("voice", getFileExtension(voiceFile.getOriginalFilename()));
@@ -87,11 +85,13 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
 
             // 4. Python 분석 실패 시 BaselineVoice를 실패 상태로 남기고 예외 반환
             if (response == null || !"COMPLETED".equals(response.getStatus())) {
-                baselineVoice.fail(response == null ? null : OBJECT_MAPPER.writeValueAsString(response));
+                failBaselineVoice(baselineVoice, response == null ? null : OBJECT_MAPPER.writeValueAsString(response));
                 throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
             }
 
             // 5. 분석 결과를 BaselineVoice에 저장하고 현재 active 기준 음성으로 전환
+            baselineVoiceRepository.findAllByUserIdAndIsActiveTrue(userId)
+                    .forEach(BaselineVoice::deactivate);
             baselineVoice.complete(
                     response.getAvgPitch(),
                     response.getAvgWpm(),
@@ -108,13 +108,16 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
             return toResponse(baselineVoice);
 
         } catch (WebClientResponseException e) {
+            failBaselineVoice(baselineVoice, e.getResponseBodyAsString());
             if (e.getStatusCode().value() == 422) {
                 throw new VoiceException(VoiceExceptionStatus.VOICE_UNPROCESSABLE);
             }
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
         } catch (WebClientRequestException e) {
+            failBaselineVoice(baselineVoice, null);
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
         } catch (IOException e) {
+            failBaselineVoice(baselineVoice, null);
             throw new VoiceException(VoiceExceptionStatus.VOICE_UNPROCESSABLE);
         } finally {
             if (tempPath != null) {
@@ -124,6 +127,12 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
                     // 예외 무시
                 }
             }
+        }
+    }
+
+    private void failBaselineVoice(BaselineVoice baselineVoice, String analysisRawJson) {
+        if (baselineVoice != null) {
+            baselineVoice.fail(analysisRawJson);
         }
     }
 
