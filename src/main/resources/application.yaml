@@ -55,7 +55,7 @@ app:
     response-timeout-seconds: ${AI_RESPONSE_TIMEOUT_SECONDS:900}
     auto-start: ${AI_AUTO_START:true}
   websocket:
-    base-url: ${WS_BASE_URL:ws://localhost:5000/ws/practice/}
+    base-url: ${WS_BASE_URL:ws://localhost:5000/ws/practice}
   voice:
     min-file-size-bytes: ${VOICE_MIN_FILE_SIZE_BYTES:5120}
 

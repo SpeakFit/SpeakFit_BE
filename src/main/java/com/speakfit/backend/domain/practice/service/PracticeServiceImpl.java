@@ -242,8 +242,7 @@ public class PracticeServiceImpl implements PracticeService {
                 })
                 .toList();
         String webSocketToken = jwtProvider.createPracticeWebSocketToken(userId, record.getId());
-        String webSocketUrl = webSocketBaseUrl + record.getId()
-                + "?token=" + URLEncoder.encode(webSocketToken, StandardCharsets.UTF_8);
+        String webSocketUrl = buildPracticeWebSocketUrl(record.getId(), webSocketToken);
 
         // 4. 시작 정보 반환
         return StartPracticeRes.Response.builder()
@@ -287,6 +286,15 @@ public class PracticeServiceImpl implements PracticeService {
                                 .toList())
                         .build())
                 .toList();
+    }
+
+    private String buildPracticeWebSocketUrl(Long practiceId, String token) {
+        String normalizedBaseUrl = webSocketBaseUrl.endsWith("/")
+                ? webSocketBaseUrl.substring(0, webSocketBaseUrl.length() - 1)
+                : webSocketBaseUrl;
+
+        return normalizedBaseUrl + "/" + practiceId
+                + "?token=" + URLEncoder.encode(token, StandardCharsets.UTF_8);
     }
 
     // 대본 단어 응답 변환 구현

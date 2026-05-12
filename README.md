@@ -62,6 +62,15 @@ PR 규칙:
 ```dotenv
 CORS_ALLOWED_ORIGINS=https://speak-fit-fe.vercel.app,http://localhost:5173
 CORS_ALLOWED_ORIGIN_PATTERNS=https://*.vercel.app
+AI_BASE_URL=http://localhost:5000
+WS_BASE_URL=ws://localhost:5000/ws/practice
+```
+
+배포 환경에서 Python 분석 서버가 EC2 호스트에서 직접 실행되고 Spring만 Docker 컨테이너로 뜨는 경우에는 `AI_BASE_URL`과 `WS_BASE_URL`의 역할을 분리합니다.
+
+```dotenv
+AI_BASE_URL=http://<python-server-host>:5000
+WS_BASE_URL=wss://<public-api-domain>/ws/practice
 ```
 
 ### 4) IntelliJ Run Configuration (local profile)
