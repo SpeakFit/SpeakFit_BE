@@ -33,11 +33,12 @@ import java.nio.file.Paths;
 @RequiredArgsConstructor
 public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private final S3Service s3Service;
     private final WebClient pythonWebClient;
     private final UserRepository userRepository;
     private final BaselineVoiceRepository baselineVoiceRepository;
-    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -86,7 +87,7 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
 
             // 4. Python 분석 실패 시 BaselineVoice를 실패 상태로 남기고 예외 반환
             if (response == null || !"COMPLETED".equals(response.getStatus())) {
-                baselineVoice.fail(response == null ? null : objectMapper.writeValueAsString(response));
+                baselineVoice.fail(response == null ? null : OBJECT_MAPPER.writeValueAsString(response));
                 throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
             }
 
@@ -97,7 +98,7 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
                     response.getAvgIntensity(),
                     response.getAvgZcr(),
                     response.getPauseRatio(),
-                    objectMapper.writeValueAsString(response)
+                    OBJECT_MAPPER.writeValueAsString(response)
             );
 
             // 6. 추천 로직에서 빠르게 읽을 수 있도록 User.defaultVoice 스냅샷 동기화
