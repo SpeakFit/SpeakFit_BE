@@ -13,7 +13,8 @@ jobs:
       - name: Deploy to EC2
         run: |
           cd ${{ secrets.EC2_PROJECT_PATH }}
-          git pull origin main
+          git stash push -m "pre-deploy-$(date +%Y%m%d%H%M%S)" || true
+          git pull --ff-only origin main
           chmod +x gradlew
           ./gradlew clean build -x test
           docker compose down --remove-orphans
