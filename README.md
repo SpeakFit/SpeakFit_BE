@@ -66,7 +66,14 @@ AI_BASE_URL=http://localhost:5000
 WS_BASE_URL=ws://localhost:5000/ws/practice
 ```
 
-배포 환경에서 Python 분석 서버가 EC2 호스트에서 직접 실행되고 Spring만 Docker 컨테이너로 뜨는 경우에는 `AI_BASE_URL`과 `WS_BASE_URL`의 역할을 분리합니다.
+Spring을 `docker-compose`로 실행하고 Python 분석 서버가 Docker 호스트에서 실행되는 경우에는 `localhost`가 Spring 컨테이너 자신을 가리킵니다. 이때 `docker-compose.yml`의 `extra_hosts` alias를 사용해 `AI_BASE_URL`은 호스트 Python 서버로, `WS_BASE_URL`은 브라우저가 접속할 클라이언트용 WebSocket 주소로 설정합니다.
+
+```dotenv
+AI_BASE_URL=http://host.docker.internal:5000
+WS_BASE_URL=ws://localhost:5000/ws/practice
+```
+
+배포 환경에서도 Spring만 Docker 컨테이너로 뜨고 Python 분석 서버가 호스트에서 직접 실행되는 경우에는 `AI_BASE_URL`과 `WS_BASE_URL`의 역할을 분리합니다.
 
 ```dotenv
 AI_BASE_URL=http://<python-server-host>:5000
