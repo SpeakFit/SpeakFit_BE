@@ -12,6 +12,7 @@ import com.speakfit.backend.domain.voice.exception.VoiceExceptionStatus;
 import com.speakfit.backend.domain.voice.repository.BaselineVoiceRepository;
 import com.speakfit.backend.global.infra.s3.S3Service;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
+import java.util.concurrent.TimeoutException;
 
 @Service
 @RequiredArgsConstructor
@@ -39,6 +42,9 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
     private final WebClient pythonWebClient;
     private final UserRepository userRepository;
     private final BaselineVoiceRepository baselineVoiceRepository;
+
+    @Value("${app.ai.response-timeout-seconds:900}")
+    private long analysisTimeoutSeconds;
 
     @Override
     @Transactional(noRollbackFor = VoiceException.class)
@@ -81,6 +87,7 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(PythonVoiceAnalysisRes.class)
+                    .timeout(Duration.ofSeconds(analysisTimeoutSeconds))
                     .block();
 
             // 4. Python 분석 실패 시 BaselineVoice를 실패 상태로 남기고 예외 반환
@@ -112,10 +119,25 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
             if (e.getStatusCode().value() == 422) {
                 throw new VoiceException(VoiceExceptionStatus.VOICE_UNPROCESSABLE);
             }
+            if (e.getStatusCode().value() == 408 || e.getStatusCode().value() == 504) {
+                throw new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_TIMEOUT);
+            }
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
         } catch (WebClientRequestException e) {
             failBaselineVoice(baselineVoice, null);
+            if (isTimeoutException(e)) {
+                throw new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_TIMEOUT);
+            }
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
+        } catch (RuntimeException e) {
+            if (e instanceof VoiceException) {
+                throw e;
+            }
+            failBaselineVoice(baselineVoice, null);
+            if (isTimeoutException(e)) {
+                throw new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_TIMEOUT);
+            }
+            throw e;
         } catch (IOException e) {
             failBaselineVoice(baselineVoice, null);
             throw new VoiceException(VoiceExceptionStatus.VOICE_UNPROCESSABLE);
@@ -128,6 +150,18 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
                 }
             }
         }
+    }
+
+    private boolean isTimeoutException(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof TimeoutException || current.getClass().getSimpleName().contains("Timeout")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+
+        return false;
     }
 
     private void failBaselineVoice(BaselineVoice baselineVoice, String analysisRawJson) {
