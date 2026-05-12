@@ -12,6 +12,7 @@ import com.speakfit.backend.domain.voice.exception.VoiceExceptionStatus;
 import com.speakfit.backend.domain.voice.repository.BaselineVoiceRepository;
 import com.speakfit.backend.global.infra.s3.S3Service;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.MediaType;
@@ -34,6 +35,7 @@ import java.util.concurrent.TimeoutException;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -46,15 +48,36 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
     @Value("${app.ai.response-timeout-seconds:900}")
     private long analysisTimeoutSeconds;
 
+    @Value("${app.voice.min-file-size-bytes:5120}")
+    private long minVoiceFileSizeBytes;
+
     @Override
     @Transactional(noRollbackFor = VoiceException.class)
     public VoiceAnalysisResultRes requestVoiceAnalysis(MultipartFile voiceFile, Long userId) {
         // 1. 온보딩 기준 음성으로 쓸 수 있는 파일인지 먼저 검증
         if (voiceFile == null || voiceFile.isEmpty()) {
+            log.warn("Voice analysis upload rejected: userId={}, reason=empty_file", userId);
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
         }
 
+        log.info(
+                "Voice analysis upload received: userId={}, size={} bytes, contentType={}, originalFilename={}, minSize={} bytes",
+                userId,
+                voiceFile.getSize(),
+                voiceFile.getContentType(),
+                voiceFile.getOriginalFilename(),
+                minVoiceFileSizeBytes
+        );
+
         if (isDataInsufficient(voiceFile)) {
+            log.warn(
+                    "Voice analysis upload rejected: userId={}, reason=file_too_small, size={} bytes, minSize={} bytes, contentType={}, originalFilename={}",
+                    userId,
+                    voiceFile.getSize(),
+                    minVoiceFileSizeBytes,
+                    voiceFile.getContentType(),
+                    voiceFile.getOriginalFilename()
+            );
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
         }
 
@@ -115,6 +138,12 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
             return toResponse(baselineVoice);
 
         } catch (WebClientResponseException e) {
+            log.warn(
+                    "Voice analysis Python API returned error: userId={}, status={}, body={}",
+                    userId,
+                    e.getStatusCode().value(),
+                    e.getResponseBodyAsString()
+            );
             failBaselineVoice(baselineVoice, e.getResponseBodyAsString());
             if (e.getStatusCode().value() == 422) {
                 throw new VoiceException(VoiceExceptionStatus.VOICE_UNPROCESSABLE);
@@ -124,6 +153,7 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
             }
             throw new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_FAILED);
         } catch (WebClientRequestException e) {
+            log.warn("Voice analysis Python API request failed: userId={}, message={}", userId, e.getMessage(), e);
             failBaselineVoice(baselineVoice, null);
             if (isTimeoutException(e)) {
                 throw new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_TIMEOUT);
@@ -133,12 +163,14 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
             if (e instanceof VoiceException) {
                 throw e;
             }
+            log.warn("Voice analysis failed at runtime: userId={}, message={}", userId, e.getMessage(), e);
             failBaselineVoice(baselineVoice, null);
             if (isTimeoutException(e)) {
                 throw new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_TIMEOUT);
             }
             throw e;
         } catch (IOException e) {
+            log.warn("Voice analysis failed while handling file: userId={}, message={}", userId, e.getMessage(), e);
             failBaselineVoice(baselineVoice, null);
             throw new VoiceException(VoiceExceptionStatus.VOICE_UNPROCESSABLE);
         } finally {
@@ -171,7 +203,7 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
     }
 
     private boolean isDataInsufficient(MultipartFile file) {
-        return file.getSize() < 50 * 1024;
+        return file.getSize() < minVoiceFileSizeBytes;
     }
 
     @Override
