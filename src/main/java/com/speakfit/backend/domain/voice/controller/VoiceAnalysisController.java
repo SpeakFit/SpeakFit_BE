@@ -4,9 +4,11 @@ import com.speakfit.backend.domain.voice.dto.res.VoiceAnalysisResultRes;
 import com.speakfit.backend.domain.voice.service.VoiceAnalysisService;
 import com.speakfit.backend.global.apiPayload.response.ApiResponse;
 import com.speakfit.backend.global.apiPayload.response.code.SuccessCode;
+import com.speakfit.backend.global.config.security.AuthPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -19,9 +21,10 @@ public class VoiceAnalysisController {
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<VoiceAnalysisResultRes>> requestVoiceAnalysis(
-            @RequestParam(value = "voiceFile") MultipartFile voiceFile) {
+            @RequestParam(value = "voiceFile") MultipartFile voiceFile,
+            @AuthenticationPrincipal AuthPrincipal authPrincipal) {
 
-        VoiceAnalysisResultRes result = voiceAnalysisService.requestVoiceAnalysis(voiceFile);
+        VoiceAnalysisResultRes result = voiceAnalysisService.requestVoiceAnalysis(voiceFile, authPrincipal.getUserId());
         return ResponseEntity.ok(ApiResponse.onSuccess(SuccessCode.OK, result));
     }
 

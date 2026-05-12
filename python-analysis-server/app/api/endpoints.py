@@ -644,11 +644,13 @@ async def analyze_voice_api(voiceFile: UploadFile = File(...)):
                 detail="목소리가 감지되지 않았습니다. 조용한 곳에서 다시 녹음해주세요."
             )
 
-        # 3. 래퍼를 제거하고 flat한 JSON (snake_case) 형태로 반환
+        # 3. Spring이 baseline id를 관리하므로 Python은 분석값만 반환
         return {
-            "analysis_id": 123,
             "avg_pitch": features.get("avgPitch", 0.0),
             "avg_wpm": features.get("avgWpm", 0.0),
+            "avg_intensity": features.get("avgIntensity", 0.0),
+            "avg_zcr": features.get("avgZcr", 0.0),
+            "pause_ratio": features.get("pauseRatio", 0.0),
             "status": "COMPLETED"
         }
     except HTTPException:
