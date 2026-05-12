@@ -1,5 +1,6 @@
 import librosa
 import numpy as np
+import os
 from difflib import SequenceMatcher
 from app.utils.helpers import clamp, normalize_match_text
 
@@ -23,8 +24,18 @@ MISMATCH_RATIO_THRESHOLD = 0.15
 def analyze_voice_features(file_path):
     """오디오 파일에서 정량적 특징 추출 (Librosa 사용)"""
     try:
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        print(f"[Python] Loading voice file with librosa: path={file_path}, size={file_size} bytes", flush=True)
+
         y, sr = librosa.load(file_path, sr=None)
+        if y.size == 0:
+            raise ValueError("Loaded audio is empty")
+
         duration = librosa.get_duration(y=y, sr=sr)
+        print(
+            f"[Python] Librosa loaded voice file: sample_rate={sr}, samples={y.size}, duration={duration:.3f}s",
+            flush=True
+        )
 
         # 1. 목소리 높낮이 (Pitch)
         pitches, magnitudes = librosa.piptrack(y=y, sr=sr)
@@ -64,7 +75,7 @@ def analyze_voice_features(file_path):
         }
     except Exception as e:
         import traceback
-        print(f"[Python] 음성 분석 중 치명적 오류 발생:")
+        print(f"[Python] 음성 분석 중 치명적 오류 발생: {repr(e)}", flush=True)
         traceback.print_exc()
         return None
 

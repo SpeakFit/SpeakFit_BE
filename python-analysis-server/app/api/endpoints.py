@@ -10,6 +10,7 @@ import threading
 import time
 import shutil
 import tempfile
+import traceback
 from pathlib import Path
 from difflib import SequenceMatcher
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
@@ -629,16 +630,33 @@ async def analyze_voice_api(voiceFile: UploadFile = File(...)):
     try:
         # 클라이언트의 파일 이름으로부터 확장자를 추출
         suffix = Path(voiceFile.filename or "").suffix
+        print(
+            "[Python] Voice analysis upload received: "
+            f"filename={voiceFile.filename}, content_type={voiceFile.content_type}, suffix={suffix}",
+            flush=True
+        )
 
         # 1. 안전한 임시 파일 생성
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as buffer:
             temp_path = buffer.name
             shutil.copyfileobj(voiceFile.file, buffer)
 
+        temp_size = os.path.getsize(temp_path)
+        print(
+            "[Python] Voice analysis temp file saved: "
+            f"path={temp_path}, size={temp_size} bytes",
+            flush=True
+        )
+
         # 2. 기존 음성 분석 함수 호출
         features = analyze_voice_features(temp_path)
 
         if not features:
+            print(
+                "[Python ERROR] Voice feature analysis returned no result: "
+                f"filename={voiceFile.filename}, content_type={voiceFile.content_type}, size={temp_size} bytes",
+                flush=True
+            )
             raise HTTPException(
                 status_code=422,
                 detail="목소리가 감지되지 않았습니다. 조용한 곳에서 다시 녹음해주세요."
@@ -657,6 +675,12 @@ async def analyze_voice_api(voiceFile: UploadFile = File(...)):
         # 4. 예외 처리 방식: 422 에러가 400으로 덮어씌워지지 않도록 방지
         raise
     except Exception as err:
+        print(
+            "[Python ERROR] Voice analysis request failed: "
+            f"filename={voiceFile.filename}, content_type={voiceFile.content_type}, error={repr(err)}",
+            flush=True
+        )
+        traceback.print_exc()
         raise HTTPException(
             status_code=400,
             detail="분석을 위한 음성 데이터가 부족합니다. 세 문장을 모두 읽어주세요."
