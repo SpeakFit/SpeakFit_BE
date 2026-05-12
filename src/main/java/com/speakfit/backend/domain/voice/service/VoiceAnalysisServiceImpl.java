@@ -93,7 +93,7 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
             // 4. Python 분석 실패 시 BaselineVoice를 실패 상태로 남기고 예외 반환
             if (response == null || !"COMPLETED".equals(response.getStatus())) {
                 failBaselineVoice(baselineVoice, response == null ? null : OBJECT_MAPPER.writeValueAsString(response));
-                throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
+                throw new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_FAILED);
             }
 
             // 5. 분석 결과를 BaselineVoice에 저장하고 현재 active 기준 음성으로 전환
@@ -122,7 +122,7 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
             if (e.getStatusCode().value() == 408 || e.getStatusCode().value() == 504) {
                 throw new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_TIMEOUT);
             }
-            throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
+            throw new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_FAILED);
         } catch (WebClientRequestException e) {
             failBaselineVoice(baselineVoice, null);
             if (isTimeoutException(e)) {
