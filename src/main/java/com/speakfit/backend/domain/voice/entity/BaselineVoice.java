@@ -42,10 +42,12 @@ public class BaselineVoice extends BaseEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
-    private BaselineVoiceStatus status;
+    @Builder.Default
+    private BaselineVoiceStatus status = BaselineVoiceStatus.PENDING;
 
     @Column(name = "is_active", nullable = false)
-    private Boolean isActive;
+    @Builder.Default
+    private Boolean isActive = false;
 
     @Column(name = "analysis_raw_json", columnDefinition = "TEXT")
     private String analysisRawJson;
