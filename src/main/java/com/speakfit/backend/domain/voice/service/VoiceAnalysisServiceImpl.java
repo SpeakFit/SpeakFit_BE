@@ -1,14 +1,15 @@
 package com.speakfit.backend.domain.voice.service;
 
-import com.speakfit.backend.domain.practice.entity.AnalysisResult;
-import com.speakfit.backend.domain.practice.entity.PracticeRecord;
-import com.speakfit.backend.domain.practice.repository.AnalysisResultRepository;
-import com.speakfit.backend.domain.practice.repository.PracticeRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.domain.user.repository.UserRepository;
+import com.speakfit.backend.domain.voice.dto.res.PythonVoiceAnalysisRes;
 import com.speakfit.backend.domain.voice.dto.res.VoiceAnalysisResultRes;
+import com.speakfit.backend.domain.voice.entity.BaselineVoice;
+import com.speakfit.backend.domain.voice.enums.BaselineVoiceStatus;
 import com.speakfit.backend.domain.voice.exception.VoiceException;
 import com.speakfit.backend.domain.voice.exception.VoiceExceptionStatus;
+import com.speakfit.backend.domain.voice.repository.BaselineVoiceRepository;
 import com.speakfit.backend.global.infra.s3.S3Service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
@@ -26,6 +27,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 @Service
 @RequiredArgsConstructor
@@ -33,13 +35,14 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
 
     private final S3Service s3Service;
     private final WebClient pythonWebClient;
-    private final AnalysisResultRepository analysisResultRepository;
-    private final PracticeRepository practiceRepository;
     private final UserRepository userRepository;
+    private final BaselineVoiceRepository baselineVoiceRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
-    public VoiceAnalysisResultRes requestVoiceAnalysis(MultipartFile voiceFile) {
+    public VoiceAnalysisResultRes requestVoiceAnalysis(MultipartFile voiceFile, Long userId) {
+        // 1. 온보딩 기준 음성으로 쓸 수 있는 파일인지 먼저 검증
         if (voiceFile == null || voiceFile.isEmpty()) {
             throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
         }
@@ -50,66 +53,58 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
 
         Path tempPath = null;
         try {
-            tempPath = Files.createTempFile("voice", ".mp3");
+            // 2. 로그인 사용자를 기준으로 기준 음성 도메인 데이터를 준비
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new VoiceException(VoiceExceptionStatus.VOICE_USER_NOT_FOUND));
+
+            String audioUrl = s3Service.upload(voiceFile, "voice/baseline/" + userId);
+            baselineVoiceRepository.findAllByUserIdAndIsActiveTrue(userId)
+                    .forEach(BaselineVoice::deactivate);
+
+            BaselineVoice baselineVoice = baselineVoiceRepository.save(BaselineVoice.builder()
+                    .user(user)
+                    .audioUrl(audioUrl)
+                    .status(BaselineVoiceStatus.PENDING)
+                    .isActive(false)
+                    .build());
+
+            // 3. Python 분석 서버에 전달할 임시 파일 생성
+            tempPath = Files.createTempFile("voice", getFileExtension(voiceFile.getOriginalFilename()));
             File tempFile = tempPath.toFile();
             voiceFile.transferTo(tempFile);
 
             MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
             body.add("voiceFile", new FileSystemResource(tempFile));
 
-            VoiceAnalysisResultRes response = pythonWebClient.post()
+            PythonVoiceAnalysisRes response = pythonWebClient.post()
                     .uri("/voice-analysis")
                     .contentType(MediaType.MULTIPART_FORM_DATA)
                     .bodyValue(body)
                     .retrieve()
-                    .bodyToMono(VoiceAnalysisResultRes.class)
+                    .bodyToMono(PythonVoiceAnalysisRes.class)
                     .block();
 
-            if (response != null && "COMPLETED".equals(response.getStatus())) {
-                Long recordId = response.getAnalysisId();
-                PracticeRecord practiceRecord = practiceRepository.findById(recordId)
-                        .orElseThrow(() -> new IllegalArgumentException("해당하는 연습 기록이 없습니다."));
-
-                Double avgWpm = null;
-                Double avgPitch = null;
-                if (response.getUserAverageMetrics() != null) {
-                    avgWpm = response.getUserAverageMetrics().getAvgWPM();
-                    avgPitch = response.getUserAverageMetrics().getAvgPitch();
-                }
-
-                String mostSimilarStyle = null;
-                Integer matchingRate = null;
-                String voiceStyleDescription = null;
-
-                if (response.getVoiceStyle() != null) {
-                    mostSimilarStyle = response.getVoiceStyle().getMostSimilarStyle();
-                    matchingRate = response.getVoiceStyle().getMatchingRate();
-                    voiceStyleDescription = response.getVoiceStyle().getDescription();
-                }
-
-                AnalysisResult analysisResult = AnalysisResult.builder()
-                        .recordId(recordId)
-                        .practiceRecord(practiceRecord)
-                        .avgWpm(avgWpm)
-                        .avgPitch(avgPitch)
-                        .mostSimilarStyle(mostSimilarStyle)
-                        .matchingRate(matchingRate)
-                        .voiceStyleDescription(voiceStyleDescription)
-                        .build();
-
-                analysisResultRepository.save(analysisResult);
-
-                User user = practiceRecord.getUser();
-
-                if (user.getDefaultVoice() == null ||
-                        (user.getDefaultVoice().getDefaultPitch() == null && user.getDefaultVoice().getDefaultWpm() == null)) {
-
-                    user.updateDefaultVoiceMetrics(avgPitch, avgWpm);
-                    userRepository.save(user);
-                }
+            // 4. Python 분석 실패 시 BaselineVoice를 실패 상태로 남기고 예외 반환
+            if (response == null || !"COMPLETED".equals(response.getStatus())) {
+                baselineVoice.fail(response == null ? null : objectMapper.writeValueAsString(response));
+                throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
             }
 
-            return response;
+            // 5. 분석 결과를 BaselineVoice에 저장하고 현재 active 기준 음성으로 전환
+            baselineVoice.complete(
+                    response.getAvgPitch(),
+                    response.getAvgWpm(),
+                    response.getAvgIntensity(),
+                    response.getAvgZcr(),
+                    response.getPauseRatio(),
+                    objectMapper.writeValueAsString(response)
+            );
+
+            // 6. 추천 로직에서 빠르게 읽을 수 있도록 User.defaultVoice 스냅샷 동기화
+            user.updateDefaultVoiceMetrics(response.getAvgPitch(), response.getAvgWpm());
+            userRepository.save(user);
+
+            return toResponse(baselineVoice);
 
         } catch (WebClientResponseException e) {
             if (e.getStatusCode().value() == 422) {
@@ -138,25 +133,36 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
     @Override
     @Transactional(readOnly = true)
     public VoiceAnalysisResultRes getVoiceAnalysisResult(Long analysisId) {
-        AnalysisResult analysisResult = analysisResultRepository.findById(analysisId)
+        // 저장된 기준 음성 분석 결과를 BaselineVoice 기준으로 조회
+        BaselineVoice baselineVoice = baselineVoiceRepository.findById(analysisId)
                 .orElseThrow(() -> new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_NOT_FOUND));
 
-        Double wpm = analysisResult.getAvgWpm();
-        Double pitch = analysisResult.getAvgPitch();
+        return toResponse(baselineVoice);
+    }
 
+    private VoiceAnalysisResultRes toResponse(BaselineVoice baselineVoice) {
         return VoiceAnalysisResultRes.builder()
-                .analysisId(analysisResult.getRecordId())
-                .status("COMPLETED")
-                .progress(100)
-                .voiceStyle(VoiceAnalysisResultRes.VoiceStyle.builder()
-                        .mostSimilarStyle(analysisResult.getMostSimilarStyle())
-                        .matchingRate(analysisResult.getMatchingRate())
-                        .description(analysisResult.getVoiceStyleDescription())
-                        .build())
+                .analysisId(baselineVoice.getId())
+                .status(baselineVoice.getStatus().name())
+                .progress(baselineVoice.getStatus() == BaselineVoiceStatus.COMPLETED ? 100 : 0)
                 .userAverageMetrics(VoiceAnalysisResultRes.UserAverageMetrics.builder()
-                        .avgPitch(pitch)
-                        .avgWPM(wpm)
+                        .avgPitch(baselineVoice.getAvgPitch())
+                        .avgWPM(baselineVoice.getAvgWpm())
                         .build())
                 .build();
+    }
+
+    private String getFileExtension(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return ".tmp";
+        }
+
+        String cleanFileName = Paths.get(fileName).getFileName().toString();
+        int dotIndex = cleanFileName.lastIndexOf(".");
+        if (dotIndex < 0 || dotIndex == cleanFileName.length() - 1) {
+            return ".tmp";
+        }
+
+        return cleanFileName.substring(dotIndex);
     }
 }
