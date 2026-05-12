@@ -28,7 +28,7 @@ app:
     secure: true
 
   websocket:
-    base-url: ${WS_BASE_URL}
+    base-url: ${WS_BASE_URL:wss://api.speakfit.org/ws/practice}
 
 jwt:
   secret: ${JWT_SECRET}
