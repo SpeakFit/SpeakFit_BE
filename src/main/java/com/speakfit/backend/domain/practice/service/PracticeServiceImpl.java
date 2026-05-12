@@ -356,7 +356,13 @@ public class PracticeServiceImpl implements PracticeService {
             return GetPracticeReportRes.Response.builder()
                     .practiceId(record.getId())
                     .status(record.getStatus())
+                    .audioUrl(record.getAudioUrl())
+                    .time(record.getTime())
+                    .createdAt(record.getCreatedAt())
                     .message(record.getStatus() == Status.ANALYZING ? "분석 중입니다." : "분석 실패")
+                    .audienceType(record.getAudienceType())
+                    .audienceUnderstanding(record.getAudienceUnderstanding())
+                    .speechInformation(record.getSpeechInformation())
                     .build();
         }
 
@@ -537,7 +543,7 @@ public class PracticeServiceImpl implements PracticeService {
             String fileName = practiceId + extension;
             Path filePath = uploadDirPath.resolve(fileName).normalize();
             Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
-            return filePath.toString();
+            return Paths.get("uploads", "audio", fileName).toString();
         } catch (IOException e) {
             throw new CustomException(PracticeErrorCode.PRACTICE_AUDIO_UPLOAD_FAILED);
         }
