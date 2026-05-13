@@ -215,6 +215,9 @@ public class ScriptServiceImpl implements ScriptService {
         // 대본 내용이 변경된 경우에만 낭독 기호 대본 새로 생성
         String markedContent = script.getMarkedContent();
         if (!script.getContent().equals(req.getContent())) {
+            // 연관된 연습 기록 먼저 삭제 (외래 키 제약 조건 해결)
+            practiceRepository.deleteAllByScriptId(scriptId);
+            script.getScriptSentences().clear(); // 기존 문장 데이터 삭제
             markedContent = aiAnalysisService.generateMarkedContent(req.getContent());
             if (markedContent == null || markedContent.isBlank()) {
                 markedContent = req.getContent();
