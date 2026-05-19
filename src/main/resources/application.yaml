@@ -46,7 +46,7 @@ cloud:
 
 app:
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,https://speak-fit-fe.vercel.app}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,https://speak-fit-fe.vercel.app,https://api.speakfit.org}
     allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:https://*.vercel.app}
   cookie:
     secure: false
