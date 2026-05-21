@@ -20,6 +20,7 @@ import lombok.*;
         }
 )
 public class TargetAudienceMetric {
+    // 청중 조건별 추천 범위
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

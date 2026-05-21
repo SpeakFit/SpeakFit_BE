@@ -16,6 +16,7 @@ import lombok.*;
         }
 )
 public class SpeechStyle {
+    // 스타일 이름/설명/샘플 음성
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

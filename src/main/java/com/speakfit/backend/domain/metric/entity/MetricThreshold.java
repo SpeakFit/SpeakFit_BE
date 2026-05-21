@@ -16,6 +16,7 @@ import lombok.*;
         }
 )
 public class MetricThreshold {
+    // 계산 결과의 최종 min/max 제한 -> 계산된 목표값이 이상한 값으로 튀지 않는 역할
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

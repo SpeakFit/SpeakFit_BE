@@ -10,6 +10,7 @@ import lombok.*;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Table(name = "master_delivery_metric")
 public class MasterDeliveryMetric {
+    // db/ZCR/Pause 의 앵커 기준값
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
