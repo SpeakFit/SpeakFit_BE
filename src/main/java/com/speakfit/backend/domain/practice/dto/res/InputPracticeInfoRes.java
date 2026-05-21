@@ -25,8 +25,22 @@ public class InputPracticeInfoRes {
     public static class StyleItem {
         private Long styleId;
         private StyleType styleType;
+        private String displayName;
         private String description;
         private String guideAudioUrl;
+        private TargetMetrics targetMetrics;
         private Boolean isRecommended;
+    }
+
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TargetMetrics {
+        private Double targetWpm;
+        private Double targetPitch;
+        private Double targetIntensity;
+        private Double targetZcr;
+        private Double targetPauseRatio;
     }
 }

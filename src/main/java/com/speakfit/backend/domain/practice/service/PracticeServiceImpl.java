@@ -1,5 +1,7 @@
 package com.speakfit.backend.domain.practice.service;
 
+import com.speakfit.backend.domain.metric.dto.TargetMetricResult;
+import com.speakfit.backend.domain.metric.service.TargetMetricCalculator;
 import com.speakfit.backend.domain.practice.dto.req.InputPracticeInfoReq;
 import com.speakfit.backend.domain.practice.dto.req.SelectStyleReq;
 import com.speakfit.backend.domain.practice.dto.req.StopPracticeReq;
@@ -61,6 +63,7 @@ public class PracticeServiceImpl implements PracticeService {
     private final PracticeTxService practiceTxService;
     private final ScriptContentParser scriptContentParser;
     private final JwtProvider jwtProvider;
+    private final TargetMetricCalculator targetMetricCalculator;
 
     @Value("${app.websocket.base-url}")
     private String webSocketBaseUrl;
@@ -92,7 +95,7 @@ public class PracticeServiceImpl implements PracticeService {
         // 3. 발표 스타일 추천 로직 (현재는 DB의 첫 번째 데이터를 추천하는 방식)
         // TODO: 향후 AI를 통한 정밀 추천 로직 연동
         StyleType recommendedStyleType = recommendStyleType(req);
-        List<SpeechStyle> styles = speechStyleRepository.findAllByOrderByIdAsc();
+        List<SpeechStyle> styles = speechStyleRepository.findAllByOrderBySortOrderAscIdAsc();
 
         if (styles.isEmpty()) {
             throw new CustomException(SpeechStyleErrorCode.STYLES_EMPTY);
@@ -102,8 +105,17 @@ public class PracticeServiceImpl implements PracticeService {
                 .map(style -> InputPracticeInfoRes.StyleItem.builder()
                         .styleId(style.getId())
                         .styleType(style.getStyleType())
+                        .displayName(style.getDisplayName())
                         .description(style.getDescription())
                         .guideAudioUrl(style.getSampleAudioUrl())
+                        .targetMetrics(toInputPracticeTargetMetrics(
+                                targetMetricCalculator.calculate(
+                                        user,
+                                        style.getStyleType(),
+                                        req.getAudienceUnderstanding(),
+                                        req.getAudienceType()
+                                )
+                        ))
                         .isRecommended(style.getStyleType() == recommendedStyleType)
                         .build())
                 .toList();
@@ -164,7 +176,36 @@ public class PracticeServiceImpl implements PracticeService {
         return SelectStyleRes.Response.builder()
                 .practiceId(record.getId())
                 .styleType(style.getStyleType())
+                .displayName(style.getDisplayName())
+                .targetMetrics(toSelectStyleTargetMetrics(
+                        targetMetricCalculator.calculate(
+                                record.getUser(),
+                                style.getStyleType(),
+                                record.getAudienceUnderstanding(),
+                                record.getAudienceType()
+                        )
+                ))
                 .contentList(contentList)
+                .build();
+    }
+
+    private InputPracticeInfoRes.TargetMetrics toInputPracticeTargetMetrics(TargetMetricResult targetMetricResult) {
+        return InputPracticeInfoRes.TargetMetrics.builder()
+                .targetWpm(targetMetricResult.targetWpm())
+                .targetPitch(targetMetricResult.targetPitch())
+                .targetIntensity(targetMetricResult.targetIntensity())
+                .targetZcr(targetMetricResult.targetZcr())
+                .targetPauseRatio(targetMetricResult.targetPauseRatio())
+                .build();
+    }
+
+    private SelectStyleRes.TargetMetrics toSelectStyleTargetMetrics(TargetMetricResult targetMetricResult) {
+        return SelectStyleRes.TargetMetrics.builder()
+                .targetWpm(targetMetricResult.targetWpm())
+                .targetPitch(targetMetricResult.targetPitch())
+                .targetIntensity(targetMetricResult.targetIntensity())
+                .targetZcr(targetMetricResult.targetZcr())
+                .targetPauseRatio(targetMetricResult.targetPauseRatio())
                 .build();
     }
 

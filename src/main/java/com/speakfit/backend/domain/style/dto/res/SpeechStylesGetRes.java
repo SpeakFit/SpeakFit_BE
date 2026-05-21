@@ -1,5 +1,6 @@
 package com.speakfit.backend.domain.style.dto.res;
 
+import com.speakfit.backend.domain.style.enums.StyleType;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -15,6 +16,8 @@ public class SpeechStylesGetRes {
     @Builder
     public static class StyleItem{
         private Long styleId;
+        private StyleType styleType;
+        private String displayName;
         private String description;
         private String sampleAudioUrl;
     }

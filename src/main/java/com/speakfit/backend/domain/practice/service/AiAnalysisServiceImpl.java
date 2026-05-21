@@ -1,5 +1,7 @@
 package com.speakfit.backend.domain.practice.service;
 
+import com.speakfit.backend.domain.metric.dto.TargetMetricResult;
+import com.speakfit.backend.domain.metric.service.TargetMetricCalculator;
 import com.speakfit.backend.domain.practice.dto.res.PythonAnalysisRes;
 import com.speakfit.backend.domain.practice.entity.PracticeRecord;
 import com.speakfit.backend.domain.practice.exception.PracticeErrorCode;
@@ -33,6 +35,7 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
     private final AiAnalysisResultRepository aiAnalysisResultRepository;
     private final WebClient webClient;
     private final ScriptWordRepository scriptWordRepository;
+    private final TargetMetricCalculator targetMetricCalculator;
 
     // 비동기 분석 및 결과 저장 로직 구현 
     @Override
@@ -70,6 +73,7 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
         body.put("audienceUnderstanding", record.getAudienceUnderstanding().toString());
         body.put("speechInformation", record.getSpeechInformation().toString());
         body.put("styleType", record.getSpeechStyle().getStyleType()); // 스타일 정보
+        body.put("targetMetrics", buildTargetMetricsPayload(record));
 
         // 파이썬 서버의 /analyze 엔드포인트 호출
         return webClient.post()
@@ -78,6 +82,28 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
                 .retrieve()
                 .bodyToMono(PythonAnalysisRes.class)
                 .block(); // 비동기 스레드 내에서 호출되므로 block() 사용 가능
+    }
+
+    private Map<String, Object> buildTargetMetricsPayload(PracticeRecord record) {
+        SpeechStyle speechStyle = record.getSpeechStyle();
+        if (speechStyle == null) {
+            return Map.of();
+        }
+
+        TargetMetricResult targetMetricResult = targetMetricCalculator.calculate(
+                record.getUser(),
+                speechStyle.getStyleType(),
+                record.getAudienceUnderstanding(),
+                record.getAudienceType()
+        );
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("targetWpm", targetMetricResult.targetWpm());
+        payload.put("targetPitch", targetMetricResult.targetPitch());
+        payload.put("targetIntensity", targetMetricResult.targetIntensity());
+        payload.put("targetZcr", targetMetricResult.targetZcr());
+        payload.put("targetPauseRatio", targetMetricResult.targetPauseRatio());
+        return payload;
     }
 
     // 파이썬 분석용 대본 단어 목록 생성 구현
