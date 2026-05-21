@@ -4,6 +4,7 @@ import com.speakfit.backend.domain.style.enums.StyleType;
 import com.speakfit.backend.domain.user.enums.Dialect;
 import com.speakfit.backend.domain.user.enums.Gender;
 import jakarta.persistence.*;
+import jakarta.validation.constraints.Positive;
 import lombok.*;
 
 @Entity
@@ -41,8 +42,23 @@ public class SpeechStyleMatrix {
     private StyleType styleType;
 
     @Column(name = "pitch_ratio", nullable = false)
+    @Positive(message = "pitchRatio must be positive.")
     private Double pitchRatio;
 
     @Column(name = "wpm_ratio", nullable = false)
+    @Positive(message = "wpmRatio must be positive.")
     private Double wpmRatio;
+
+    @PrePersist
+    @PreUpdate
+    void validateRatios() {
+        validatePositive("pitchRatio", pitchRatio);
+        validatePositive("wpmRatio", wpmRatio);
+    }
+
+    private void validatePositive(String fieldName, Double value) {
+        if (value != null && value <= 0) {
+            throw new IllegalStateException("SpeechStyleMatrix " + fieldName + " must be positive.");
+        }
+    }
 }
