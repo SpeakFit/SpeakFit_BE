@@ -17,7 +17,21 @@ public class SelectStyleRes {
     public static class Response {
         private Long practiceId;
         private StyleType styleType;
+        private String displayName;
+        private TargetMetrics targetMetrics;
         private List<ContentRes> contentList;
+    }
+
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TargetMetrics {
+        private Double targetWpm;
+        private Double targetPitch;
+        private Double targetIntensity;
+        private Double targetZcr;
+        private Double targetPauseRatio;
     }
 
     @Getter

@@ -18,7 +18,7 @@ public class SpeechStyleQueryServiceImpl implements SpeechStyleQueryService {
     // 스피치 스타일 조회
     @Override
     public SpeechStylesGetRes getStyles(){
-        var styles = speechStyleRepository.findAllByOrderByIdAsc();
+        var styles = speechStyleRepository.findAllByOrderBySortOrderAscIdAsc();
 
         if (styles.isEmpty()){
             throw new CustomException(SpeechStyleErrorCode.STYLES_EMPTY);
@@ -27,6 +27,8 @@ public class SpeechStyleQueryServiceImpl implements SpeechStyleQueryService {
         var items = styles.stream()
                 .map(s->SpeechStylesGetRes.StyleItem.builder()
                         .styleId(s.getId())
+                        .styleType(s.getStyleType())
+                        .displayName(s.getDisplayName())
                         .description(s.getDescription())
                         .sampleAudioUrl(s.getSampleAudioUrl())
                         .build())

@@ -11,4 +11,5 @@ public interface SpeechStyleRepository extends JpaRepository<SpeechStyle, Long> 
 
     Optional<SpeechStyle> findByStyleType(StyleType styleType);
     List<SpeechStyle> findAllByOrderByIdAsc();
+    List<SpeechStyle> findAllByOrderBySortOrderAscIdAsc();
 }
