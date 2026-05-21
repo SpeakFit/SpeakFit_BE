@@ -5,6 +5,7 @@ import com.speakfit.backend.domain.metric.entity.MasterDeliveryMetric;
 import com.speakfit.backend.domain.metric.entity.MetricThreshold;
 import com.speakfit.backend.domain.metric.entity.TargetAudienceMetric;
 import com.speakfit.backend.domain.metric.enums.MetricType;
+import com.speakfit.backend.domain.metric.exception.MetricErrorCode;
 import com.speakfit.backend.domain.metric.repository.MasterDeliveryMetricRepository;
 import com.speakfit.backend.domain.metric.repository.MetricThresholdRepository;
 import com.speakfit.backend.domain.metric.repository.TargetAudienceMetricRepository;
@@ -16,6 +17,7 @@ import com.speakfit.backend.domain.style.repository.SpeechStyleMatrixRepository;
 import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.domain.voice.entity.BaselineVoice;
 import com.speakfit.backend.domain.voice.repository.BaselineVoiceRepository;
+import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,13 +44,13 @@ public class TargetMetricCalculator {
                 .orElse(null);
         SpeechStyleMatrix styleMatrix = speechStyleMatrixRepository
                 .findByDialectAndGenderAndStyleType(user.getDialect(), user.getGender(), styleType)
-                .orElse(null);
+                .orElseThrow(() -> new CustomException(MetricErrorCode.SPEECH_STYLE_MATRIX_NOT_FOUND));
         TargetAudienceMetric audienceMetric = targetAudienceMetricRepository
                 .findByAudienceUnderstandingAndAudienceType(audienceUnderstanding, audienceType)
-                .orElse(null);
+                .orElseThrow(() -> new CustomException(MetricErrorCode.TARGET_AUDIENCE_METRIC_NOT_FOUND));
         MasterDeliveryMetric masterDeliveryMetric = masterDeliveryMetricRepository
                 .findFirstByOrderByIdAsc()
-                .orElse(null);
+                .orElseThrow(() -> new CustomException(MetricErrorCode.MASTER_DELIVERY_METRIC_NOT_FOUND));
 
         Double targetWpm = calculateTargetWpm(baselineVoice, styleMatrix, audienceMetric);
         Double targetPitch = calculateTargetPitch(baselineVoice, styleMatrix, audienceMetric);
@@ -187,7 +189,8 @@ public class TargetMetricCalculator {
     }
 
     private MetricThreshold findThreshold(MetricType metricType) {
-        return metricThresholdRepository.findByMetricType(metricType).orElse(null);
+        return metricThresholdRepository.findByMetricType(metricType)
+                .orElseThrow(() -> new CustomException(MetricErrorCode.METRIC_THRESHOLD_NOT_FOUND));
     }
 
     private Double clampByBaselineRatio(Double value, Double baseline, Double minRatio, Double maxRatio) {
