@@ -58,4 +58,21 @@ public class TargetAudienceMetric {
 
     @Column(name = "max_pause_ratio", nullable = false)
     private Double maxPauseRatio;
+
+    @PrePersist
+    @PreUpdate
+    private void validateMinMaxRanges() {
+        validateRange("minWpm", minWpm, "maxWpm", maxWpm);
+        validateRange("minPitchRatio", minPitchRatio, "maxPitchRatio", maxPitchRatio);
+        validateRange("minIntensityDelta", minIntensityDelta, "maxIntensityDelta", maxIntensityDelta);
+        validateRange("minPauseRatio", minPauseRatio, "maxPauseRatio", maxPauseRatio);
+    }
+
+    private void validateRange(String minFieldName, Double minValue, String maxFieldName, Double maxValue) {
+        if (minValue != null && maxValue != null && minValue > maxValue) {
+            throw new IllegalStateException(
+                    "TargetAudienceMetric " + minFieldName + " must be less than or equal to " + maxFieldName + "."
+            );
+        }
+    }
 }
