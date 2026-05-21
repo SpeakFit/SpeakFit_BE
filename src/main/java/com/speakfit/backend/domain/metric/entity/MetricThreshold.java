@@ -38,4 +38,12 @@ public class MetricThreshold {
 
     @Column(name = "description", nullable = true, length = 500)
     private String description;
+
+    @PrePersist
+    @PreUpdate
+    private void validateThresholds() {
+        if (minValue != null && maxValue != null && minValue > maxValue) {
+            throw new IllegalStateException("MetricThreshold minValue must be less than or equal to maxValue.");
+        }
+    }
 }
