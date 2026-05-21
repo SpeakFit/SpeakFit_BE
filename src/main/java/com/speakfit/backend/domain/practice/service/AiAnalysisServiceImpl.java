@@ -72,7 +72,8 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
         body.put("audienceType", record.getAudienceType().toString()); // Enum -> String
         body.put("audienceUnderstanding", record.getAudienceUnderstanding().toString());
         body.put("speechInformation", record.getSpeechInformation().toString());
-        body.put("styleType", record.getSpeechStyle().getStyleType()); // 스타일 정보
+        SpeechStyle speechStyle = record.getSpeechStyle();
+        body.put("styleType", speechStyle != null ? speechStyle.getStyleType() : null); // 스타일 정보
         body.put("targetMetrics", buildTargetMetricsPayload(record));
 
         // 파이썬 서버의 /analyze 엔드포인트 호출
