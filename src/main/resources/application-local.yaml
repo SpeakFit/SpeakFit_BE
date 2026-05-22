@@ -4,9 +4,10 @@ spring:
       on-profile: local
 
   datasource:
-    url: ${LOCAL_DB_URL}
-    username: ${LOCAL_DB_USERNAME}
-    password: ${LOCAL_DB_PASSWORD}
+    # 환경변수가 없을 경우 콜론(:) 뒤의 기본값(127.0.0.1 및 root)을 바라보도록 안전장치 세팅
+    url: ${LOCAL_DB_URL:jdbc:mysql://127.0.0.1:3306/speakfit?serverTimezone=Asia/Seoul&useLegacyDatetimeCode=false&allowPublicKeyRetrieval=true&useSSL=false}
+    username: ${LOCAL_DB_USERNAME:root}
+    password: ${LOCAL_DB_PASSWORD:password}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
