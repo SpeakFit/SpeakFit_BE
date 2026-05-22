@@ -42,14 +42,14 @@ public class GetFeedbackDetailRes {
         private String description;
     }
 
-    // 3. 발표별 변화 추이
+    // 3. 발표별 변화 추이 (차트를 그릴 수 있도록 리스트 구조로 교정)
     @Getter @Builder
     public static class GrowthTrend {
-        private MetricDiff speed;
-        private MetricDiff db;
-        private MetricDiff pause;
-        private MetricDiff zcr;
-        private MetricDiff hz;
+        private List<TrendPoint> speed; // 속도 변화 추이 리스트
+        private List<TrendPoint> db;    // 성량 변화 추이 리스트
+        private List<TrendPoint> pause; // 멈춤 변화 추이 리스트
+        private List<TrendPoint> zcr;   // 발음 변화 추이 리스트
+        private List<TrendPoint> hz;    // 강조 변화 추이 리스트
     }
     // 4. AI 분석 리포트(Good/Bad)
     @Getter @Builder
@@ -73,12 +73,13 @@ public class GetFeedbackDetailRes {
         private String description;
     }
 
-    // 지표 차이
+    // 날짜별 차트 좌표용 핵심 데이터 스펙 추가
     @Getter @Builder
-    public static class MetricDiff {
-        private double current;
-        private double previous;
-        private String diff; // "+ 15wpm" 등
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class TrendPoint {
+        private String date;  // "2026-05-22" 포맷의 날짜 문자열
+        private double value; // 해당 날짜의 지표 평균값
     }
 
 }
