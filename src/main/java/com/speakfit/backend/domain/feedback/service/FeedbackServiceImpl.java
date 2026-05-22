@@ -68,8 +68,9 @@ public class FeedbackServiceImpl implements FeedbackService {
             throw new CustomException(PracticeErrorCode.PRACTICE_NOT_FOUND);
         }
 
-        // 4. 5대 지표 평균 계산
-        CalculatedMetrics metrics = getCalculatedMetrics(records);
+        // 4. 5대 지표 생성 시 DB에서 최초 1회 전체 조회 진행
+        List<AnalysisResult> analysisResults = analysisResultRepository.findByPracticeRecordIn(records);
+        CalculatedMetrics metrics = getCalculatedMetrics(analysisResults);
 
         // 5. 피드백 엔티티 생성 및 저장
         Feedback feedback = Feedback.builder()
@@ -129,13 +130,13 @@ public class FeedbackServiceImpl implements FeedbackService {
                 feedback.getUser(), Status.ANALYZED, thisStart, thisEnd
         );
 
-        // 4. 대시보드 상단에 띄울 '현재 피드백 기간 내의 전체 평균 스펙' 연산
-        CalculatedMetrics curSummary = getCalculatedMetrics(curRecords);
-
-        // 5. 물리 DB 스키마 규격 매핑 기반 날짜별 추이 리스트 빌드업 로직
+        // 🌟 [★핵심 최적화] 분석 결과 일괄 조회 (중복 쿼리 제거 및 N+1 방지 해결)
         List<AnalysisResult> analysisResults = analysisResultRepository.findByPracticeRecordIn(curRecords);
 
-        // 날짜별(LocalDate) 그룹핑
+        // 4. 대시보드 상단에 띄울 전체 평균 스펙 연산 (이미 긁어온 analysisResults 리스트 재사용)
+        CalculatedMetrics curSummary = getCalculatedMetrics(analysisResults);
+
+        // 5. 날짜별(LocalDate) 그룹핑 진행
         Map<LocalDate, List<AnalysisResult>> groupedByDate = analysisResults.stream()
                 .collect(Collectors.groupingBy(result -> result.getPracticeRecord().getCreatedAt().toLocalDate()));
 
@@ -145,14 +146,13 @@ public class FeedbackServiceImpl implements FeedbackService {
         List<GetFeedbackDetailRes.TrendPoint> zcrTrends = new ArrayList<>();
         List<GetFeedbackDetailRes.TrendPoint> hzTrends = new ArrayList<>();
 
-        // 날짜 오름차순으로 정렬하여 각 지표 배열 조립 (실제 물리 DB 찐 컬럼 바인딩)
+        // 날짜 오름차순으로 정렬하여 각 지표 배열 조립
         groupedByDate.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .forEach(entry -> {
                     String dateStr = entry.getKey().toString();
                     List<AnalysisResult> list = entry.getValue();
 
-                    // 💡 실제 DB의 물리 명세서 컬럼 매핑 함수 매칭
                     double speedVal = list.stream().filter(r -> r.getAvgWpm() != null).mapToDouble(AnalysisResult::getAvgWpm).average().orElse(0.0);
                     double dbVal = list.stream().filter(r -> r.getAvgIntensity() != null).mapToDouble(AnalysisResult::getAvgIntensity).average().orElse(0.0);
                     double pauseVal = list.stream().filter(r -> r.getPauseCount() != null).mapToDouble(AnalysisResult::getPauseCount).average().orElse(0.0);
@@ -166,17 +166,17 @@ public class FeedbackServiceImpl implements FeedbackService {
                     hzTrends.add(new GetFeedbackDetailRes.TrendPoint(dateStr, Math.round(hzVal * 10.0) / 10.0));
                 });
 
-        // 6. 개선 대상 지표 목록 파싱 (물리 DB 컬럼 guide_summary 반영)
+        // 6. 개선 대상 지표 목록 파싱
         List<String> targetMetrics = Collections.emptyList();
         if (feedback.getGuideSummary() != null) {
             targetMetrics = Arrays.asList(feedback.getGuideSummary().split(","));
         }
 
-        // 7. 최종 DTO 매핑 및 빌드 반환 (스네이크 케이스 100% 대응 규격)
+        // 7. 최종 DTO 매핑 및 빌드 반환
         return GetFeedbackDetailRes.builder()
                 .id(feedback.getId())
                 .status(feedback.getStatus().toString())
-                .message("종합 피드백 상세 조회가 완료되었습니다.") // 누락되었던 message 정보 추가
+                .message("종합 피드백 상세 조회가 완료되었습니다.")
                 .startDate(feedback.getStartDate().toString())
                 .endDate(feedback.getEndDate().toString())
                 .userAverageMetrics(GetFeedbackDetailRes.UserAverageMetrics.builder()
@@ -216,12 +216,11 @@ public class FeedbackServiceImpl implements FeedbackService {
                 .build();
     }
 
-    private CalculatedMetrics getCalculatedMetrics(List<PracticeRecord> records) {
-        if (records.isEmpty()) {
+    // 💡 파라미터 타입을 List<AnalysisResult>로 직접 받도록 변경하여 쿼리 중복 제거
+    private CalculatedMetrics getCalculatedMetrics(List<AnalysisResult> analysisResults) {
+        if (analysisResults.isEmpty()) {
             return new CalculatedMetrics(0.0, 0.0, 0.0, 0.0, 0.0);
         }
-
-        List<AnalysisResult> analysisResults = analysisResultRepository.findByPracticeRecordIn(records);
 
         double w = calculateForResult(analysisResults, AnalysisResult::getAvgWpm);
         double d = calculateForResult(analysisResults, AnalysisResult::getAvgIntensity);
