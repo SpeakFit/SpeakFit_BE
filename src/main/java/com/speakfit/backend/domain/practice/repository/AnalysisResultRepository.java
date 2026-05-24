@@ -21,4 +21,7 @@ public interface AnalysisResultRepository extends JpaRepository<AnalysisResult, 
     // @param practiceRecords 연습 기록 리스트
     // @return 분석 결과 리스트
     List<AnalysisResult> findByPracticeRecordIn(List<PracticeRecord> practiceRecords);
+
+    // 연습 기록 ID(practiceRecordId)로 분석 결과를 단건 조회하는 쿼리 메서드
+    Optional<AnalysisResult> findByPracticeRecordId(Long practiceRecordId);
 }

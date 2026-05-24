@@ -9,4 +9,5 @@ import java.util.Optional;
 public interface BaselineVoiceRepository extends JpaRepository<BaselineVoice, Long> {
     List<BaselineVoice> findAllByUserIdAndIsActiveTrue(Long userId);
     Optional<BaselineVoice> findFirstByUserIdAndIsActiveTrueOrderByIdDesc(Long userId);
+    Optional<BaselineVoice> findByUserId(Long userId);
 }
