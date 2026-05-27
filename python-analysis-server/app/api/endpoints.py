@@ -517,9 +517,15 @@ async def update_script(req: UpdateScriptRequest):
 async def convert_ppt(req: ConvertPptRequest):
     ppt_path = ensure_within_upload_root(req.pptPath, must_exist=True)
     output_dir = ensure_within_upload_root(req.outputDir)
-    pdf_path = convert_ppt_to_pdf(ppt_path, output_dir)
-    slides = render_pdf_to_images(pdf_path, output_dir)
-    if os.path.exists(pdf_path): os.remove(pdf_path)
+    if ppt_path.lower().endswith(".pdf"):
+        # PDF는 LibreOffice 변환 없이 바로 이미지 렌더링
+        slides = render_pdf_to_images(ppt_path, output_dir)
+    else:
+        # PPT/PPTX: LibreOffice로 PDF 변환 후 이미지 렌더링
+        pdf_path = convert_ppt_to_pdf(ppt_path, output_dir)
+        slides = render_pdf_to_images(pdf_path, output_dir)
+        if os.path.exists(pdf_path):
+            os.remove(pdf_path)
     return {"sourcePptUrl": ppt_path, "totalSlides": len(slides), "slides": slides}
 
 @router.websocket("/ws/practice/{practice_id}")

@@ -364,7 +364,7 @@ public class ScriptServiceImpl implements ScriptService {
         }
 
         String extension = getPptFileExtension(file.getOriginalFilename());
-        if (!extension.equals(".ppt") && !extension.equals(".pptx")) {
+        if (!extension.equals(".ppt") && !extension.equals(".pptx") && !extension.equals(".pdf")) {
             throw new CustomException(ScriptErrorCode.SCRIPT_PPT_INVALID_EXTENSION);
         }
 
@@ -413,6 +413,56 @@ public class ScriptServiceImpl implements ScriptService {
         }
 
         return PptStatus.NONE;
+    }
+
+    // PPT 변환 상태 및 슬라이드 조회 기능 구현
+    @Override
+    @Transactional(readOnly = true)
+    public UploadPptRes.Response getPptStatus(Long scriptId, Long userId) {
+        Script script = scriptRepository.findByIdWithUser(scriptId)
+                .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
+
+        if (!script.getUser().getId().equals(userId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
+        }
+
+        PptStatus status = resolvePptStatus(script);
+
+        if (status != PptStatus.COMPLETED) {
+            String message = switch (status) {
+                case PROCESSING -> "PPT 변환을 진행하고 있습니다.";
+                case FAILED -> script.getPptErrorMessage() != null
+                        ? script.getPptErrorMessage()
+                        : "PPT 변환에 실패했습니다.";
+                default -> "PPT 파일이 없습니다.";
+            };
+            return UploadPptRes.Response.builder()
+                    .scriptId(scriptId)
+                    .pptStatus(status)
+                    .message(message)
+                    .build();
+        }
+
+        List<UploadPptRes.PptSlideRes> slides = script.getPptSlides().stream()
+                .sorted(java.util.Comparator.comparing(com.speakfit.backend.domain.script.entity.PptSlide::getSlideIndex))
+                .map(slide -> UploadPptRes.PptSlideRes.builder()
+                        .page(slide.getSlideIndex())
+                        .imageUrl(slide.getImageUrl())
+                        .build())
+                .toList();
+
+        UploadPptRes.PptInfoRes pptInfo = UploadPptRes.PptInfoRes.builder()
+                .sourcePptUrl(script.getPptUrl())
+                .totalSlides(script.getTotalSlides() != null ? script.getTotalSlides() : slides.size())
+                .slides(slides)
+                .build();
+
+        return UploadPptRes.Response.builder()
+                .scriptId(scriptId)
+                .pptStatus(PptStatus.COMPLETED)
+                .message("PPT 변환이 완료되었습니다.")
+                .pptInfo(pptInfo)
+                .build();
     }
 
     // 디렉터리 삭제 기능 구현

@@ -81,6 +81,13 @@ public class ScriptController {
         return ApiResponse.onSuccess(SuccessCode.OK, scriptService.updateScript(request, authPrincipal.getUserId()));
     }
 
+    // PPT 변환 상태 및 슬라이드 조회 구현
+    @GetMapping("/{scriptId}/ppt/status")
+    public ApiResponse<UploadPptRes.Response> getPptStatus(@PathVariable @Positive Long scriptId,
+                                                           @AuthenticationPrincipal AuthPrincipal authPrincipal) {
+        return ApiResponse.onSuccess(SuccessCode.OK, scriptService.getPptStatus(scriptId, authPrincipal.getUserId()));
+    }
+
     // PPT 파일 업로드 및 슬라이드 변환 구현
     @PatchMapping(value = "/{scriptId}/ppt", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<UploadPptRes.Response>> uploadPpt(@PathVariable @Positive Long scriptId,

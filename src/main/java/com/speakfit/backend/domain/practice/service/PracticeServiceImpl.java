@@ -13,10 +13,12 @@ import com.speakfit.backend.domain.practice.entity.*;
 import com.speakfit.backend.domain.practice.enums.Status;
 import com.speakfit.backend.domain.practice.exception.PracticeErrorCode;
 import com.speakfit.backend.domain.practice.repository.*;
+import com.speakfit.backend.domain.script.entity.PptSlide;
 import com.speakfit.backend.domain.script.entity.Script;
 import com.speakfit.backend.domain.script.entity.ScriptSentence;
 import com.speakfit.backend.domain.script.entity.ScriptWord;
 import com.speakfit.backend.domain.script.exception.ScriptErrorCode;
+import com.speakfit.backend.domain.script.repository.PptSlideRepository;
 import com.speakfit.backend.domain.script.repository.ScriptRepository;
 import com.speakfit.backend.domain.script.service.ScriptContentParser;
 import com.speakfit.backend.domain.style.entity.SpeechStyle;
@@ -53,6 +55,7 @@ public class PracticeServiceImpl implements PracticeService {
     private final PracticeRepository practiceRepository;
     private final ScriptRepository scriptRepository;
     private final UserRepository userRepository;
+    private final PptSlideRepository pptSlideRepository;
     private final SpeechStyleRepository speechStyleRepository;
     private final AnalysisResultRepository analysisResultRepository;
     private final AiAnalysisResultRepository aiAnalysisResultRepository;
@@ -285,7 +288,17 @@ public class PracticeServiceImpl implements PracticeService {
         String webSocketToken = jwtProvider.createPracticeWebSocketToken(userId, record.getId());
         String webSocketUrl = buildPracticeWebSocketUrl(record.getId(), webSocketToken);
 
-        // 4. 시작 정보 반환
+        // 4. PPT 슬라이드 조회 (프레젠테이션 모드용)
+        List<StartPracticeRes.SlideRes> slides = pptSlideRepository
+                .findAllByScriptIdOrderBySlideIndexAsc(record.getScript().getId())
+                .stream()
+                .map(slide -> StartPracticeRes.SlideRes.builder()
+                        .slideIndex(slide.getSlideIndex())
+                        .imageUrl(slide.getImageUrl())
+                        .build())
+                .toList();
+
+        // 5. 시작 정보 반환
         return StartPracticeRes.Response.builder()
                 .practiceId(record.getId())
                 .title(record.getScript().getTitle())
@@ -295,6 +308,8 @@ public class PracticeServiceImpl implements PracticeService {
                 .sentences(sentences)
                 .scriptWords(scriptWords)
                 .createdAt(record.getCreatedAt())
+                .scriptType(record.getScript().getScriptType())
+                .slides(slides)
                 .build();
     }
 

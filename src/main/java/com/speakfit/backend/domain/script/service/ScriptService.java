@@ -40,4 +40,7 @@ public interface ScriptService {
 
     // PPT 파일 업로드 및 슬라이드 변환 메서드 정의
     UploadPptRes.Response uploadPpt(Long scriptId, MultipartFile file, Long userId);
+
+    // PPT 변환 상태 및 슬라이드 조회 메서드 정의
+    UploadPptRes.Response getPptStatus(Long scriptId, Long userId);
 }
