@@ -2,6 +2,7 @@ package com.speakfit.backend.domain.practice.dto.res;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.speakfit.backend.domain.practice.enums.Status;
+import com.speakfit.backend.domain.script.enums.ScriptType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -24,6 +25,18 @@ public class StartPracticeRes {
         private List<SentenceRes> sentences;
         private List<WordRes> scriptWords;
         private LocalDateTime createdAt;
+        // PPT 프레젠테이션 모드용 필드
+        private ScriptType scriptType;
+        private List<SlideRes> slides;
+    }
+
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SlideRes {
+        private Integer slideIndex;
+        private String imageUrl;
     }
 
     @Getter

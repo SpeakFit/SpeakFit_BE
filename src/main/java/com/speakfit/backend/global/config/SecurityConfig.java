@@ -75,6 +75,7 @@ public class SecurityConfig {
                         ).permitAll()
                         .requestMatchers("/api/terms/**", "/api/styles/**").permitAll()
                         .requestMatchers("/auth/**").permitAll()
+                        .requestMatchers("/uploads/**").permitAll()
                         // PRIVATE
                         .requestMatchers("/api/practices",
                                 "/api/scripts",
