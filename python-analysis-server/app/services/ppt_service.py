@@ -52,17 +52,22 @@ def ensure_within_upload_root(path, must_exist=False):
         raise HTTPException(status_code=404, detail="Requested file not found")
     return absolute_path
 
-def convert_ppt_to_pdf(ppt_path, output_dir):
+def convert_ppt_to_pdf(ppt_path: str):
+    """
+    PPT/PPTX를 PDF로 변환합니다.
+    임시 디렉토리에 PDF를 생성하고 (pdf_path, temp_dir) 튜플을 반환합니다.
+    호출 측에서 작업 완료 후 temp_dir을 반드시 삭제해야 합니다.
+    """
     libreoffice_path = find_libreoffice()
     if not libreoffice_path:
         raise HTTPException(status_code=503, detail="LibreOffice is not installed")
 
-    os.makedirs(output_dir, exist_ok=True)
+    temp_dir = tempfile.mkdtemp(prefix="speakfit-ppt-")
     profile_dir = tempfile.mkdtemp(prefix="libreoffice-profile-")
     command = [
         libreoffice_path, f"-env:UserInstallation={to_file_uri(profile_dir)}",
         "--headless", "--nologo", "--norestore", "--convert-to", "pdf",
-        "--outdir", output_dir, ppt_path,
+        "--outdir", temp_dir, ppt_path,
     ]
     try:
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -76,21 +81,32 @@ def convert_ppt_to_pdf(ppt_path, output_dir):
         shutil.rmtree(profile_dir, ignore_errors=True)
 
     base_name = os.path.splitext(os.path.basename(ppt_path))[0]
-    return os.path.join(output_dir, base_name + ".pdf")
+    pdf_path = os.path.join(temp_dir, base_name + ".pdf")
+    return pdf_path, temp_dir
 
-def render_pdf_to_images(pdf_path, output_dir):
+
+def render_pdf_to_images(pdf_path: str, s3_key_prefix: str) -> list:
+    """
+    PDF를 슬라이드 이미지로 변환한 후 S3에 업로드합니다.
+    각 슬라이드의 S3 URL 목록을 반환합니다.
+    """
     import fitz
-    slides_dir = os.path.join(output_dir, "slides")
-    os.makedirs(slides_dir, exist_ok=True)
+    from app.services.s3_service import upload_to_s3
+
+    slides_temp_dir = tempfile.mkdtemp(prefix="speakfit-slides-")
     document = fitz.open(pdf_path)
     slides = []
     try:
         for i in range(document.page_count):
             page = document.load_page(i)
             pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
-            img_path = os.path.join(slides_dir, f"{i + 1}.png")
-            pix.save(img_path)
-            slides.append({"page": i + 1, "imageUrl": img_path})
+            temp_img_path = os.path.join(slides_temp_dir, f"{i + 1}.png")
+            pix.save(temp_img_path)
+
+            s3_key = f"{s3_key_prefix}/{i + 1}.png"
+            s3_url = upload_to_s3(temp_img_path, s3_key, content_type="image/png")
+            slides.append({"page": i + 1, "imageUrl": s3_url})
     finally:
         document.close()
+        shutil.rmtree(slides_temp_dir, ignore_errors=True)
     return slides

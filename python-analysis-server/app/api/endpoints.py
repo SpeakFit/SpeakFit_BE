@@ -31,6 +31,7 @@ from app.services.ai_service import (
 from app.services.ppt_service import (
     ensure_within_upload_root, convert_ppt_to_pdf, render_pdf_to_images
 )
+from app.services.s3_service import upload_to_s3
 from app.utils.helpers import clamp, normalize_match_text
 from app.core.config import (
     GOOGLE_STT_ENABLED, GOOGLE_STT_SAMPLE_RATE,
@@ -452,10 +453,28 @@ def decode_base64url(value):
 
 @router.post("/analyze")
 async def run_analysis(req: AnalyzeRequest):
-    # Spring 서버에서 전달받은 audioUrl은 로컬 파일 경로입니다.
-    # 상대 경로인 경우 UPLOAD_ROOT를 기준으로 절대 경로를 만듭니다.
+    # audioUrl이 S3 URL이면 임시 파일로 다운로드, 로컬 경로면 그대로 사용
     audio_path = req.audioUrl
-    if not os.path.isabs(audio_path):
+    is_temp_audio = False
+
+    if audio_path.startswith("http://") or audio_path.startswith("https://"):
+        # S3 URL → boto3로 임시 파일 다운로드 (퍼블릭 액세스 불필요, credentials 사용)
+        from app.services.s3_service import get_s3_client
+        from app.core.config import S3_BUCKET_NAME
+        from urllib.parse import urlparse
+        parsed = urlparse(audio_path)
+        s3_key = parsed.path.lstrip("/")
+        suffix = os.path.splitext(s3_key)[-1] or ".webm"
+        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        tmp_file.close()
+        try:
+            get_s3_client().download_file(S3_BUCKET_NAME, s3_key, tmp_file.name)
+        except Exception as e:
+            os.remove(tmp_file.name)
+            raise HTTPException(status_code=502, detail=f"Failed to download audio from S3: {e}")
+        audio_path = tmp_file.name
+        is_temp_audio = True
+    elif not os.path.isabs(audio_path):
         audio_path = os.path.join(UPLOAD_ROOT, audio_path.replace("uploads/", ""))
 
     print(f"[Python] Starting analysis for file: {audio_path}")
@@ -463,7 +482,7 @@ async def run_analysis(req: AnalyzeRequest):
     if not os.path.exists(audio_path):
         print(f"[Python ERROR] Audio file not found at: {audio_path}")
         raise HTTPException(status_code=404, detail=f"Audio file not found: {audio_path}")
-    
+
     try:
         # 1. 음성 특징 분석 (Librosa 등 사용)
         features = analyze_voice_features(audio_path)
@@ -486,10 +505,10 @@ async def run_analysis(req: AnalyzeRequest):
 
         print(f"[Python] Analysis successful for practice {req.practiceId}")
         return {
-            **features, 
-            **ai_feedback, 
-            "wordResults": word_results, 
-            "sentenceResults": sentence_results, 
+            **features,
+            **ai_feedback,
+            "wordResults": word_results,
+            "sentenceResults": sentence_results,
             "issues": issue_results
         }
     except HTTPException:
@@ -499,6 +518,10 @@ async def run_analysis(req: AnalyzeRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # S3에서 다운로드한 임시 오디오 파일 삭제
+        if is_temp_audio and os.path.exists(audio_path):
+            os.remove(audio_path)
 
 @router.post("/scripts/mark")
 async def mark_script(req: MarkRequest):
@@ -515,46 +538,47 @@ async def update_script(req: UpdateScriptRequest):
 
 @router.post("/ppt/convert")
 async def convert_ppt(req: ConvertPptRequest):
-    # 요청 경로에서 '/uploads/' 앞의 prefix 추출 (예: "/app")
-    # 응답 경로를 Spring Boot가 인식할 수 있는 형식으로 복원하기 위해 사용
-    def get_uploads_prefix(path):
-        normalized = path.replace("\\", "/")
-        idx = normalized.find("/uploads/")
-        return normalized[:idx] if idx >= 0 else ""
-
-    def to_response_path(host_path, prefix):
-        """호스트 절대 경로 → 요청과 동일한 prefix 형식의 경로로 변환
-        예: /home/ec2-user/.../uploads/ppt/1/slides/1.png
-         → /app/uploads/ppt/1/slides/1.png
-        Spring Boot의 toUploadUrl()이 이 경로를 받아 /uploads/... URL로 변환함
-        """
-        relative = os.path.relpath(host_path, UPLOAD_ROOT).replace("\\", "/")
-        return prefix + "/uploads/" + relative
-
-    uploads_prefix = get_uploads_prefix(req.pptPath)
-
+    # 로컬 PPTX 경로 (Docker 경로 → 호스트 경로 변환)
     ppt_path = ensure_within_upload_root(req.pptPath, must_exist=True)
-    output_dir = ensure_within_upload_root(req.outputDir)
 
-    if ppt_path.lower().endswith(".pdf"):
-        # PDF는 LibreOffice 변환 없이 바로 이미지 렌더링
-        slides = render_pdf_to_images(ppt_path, output_dir)
+    # S3 키 prefix 생성: pptPath에서 /uploads/ 이후 부모 경로 추출
+    # 예) /app/uploads/ppt/10/attempts/uuid/file.pptx → ppt/10/attempts/uuid
+    normalized_ppt = req.pptPath.replace("\\", "/")
+    idx = normalized_ppt.find("/uploads/")
+    if idx >= 0:
+        relative = normalized_ppt[idx + len("/uploads/"):]        # ppt/10/attempts/uuid/file.pptx
+        s3_parent = "/".join(relative.split("/")[:-1])             # ppt/10/attempts/uuid
     else:
-        # PPT/PPTX: LibreOffice로 PDF 변환 후 이미지 렌더링
-        pdf_path = convert_ppt_to_pdf(ppt_path, output_dir)
-        slides = render_pdf_to_images(pdf_path, output_dir)
-        if os.path.exists(pdf_path):
-            os.remove(pdf_path)
+        import uuid as _uuid
+        s3_parent = f"ppt/unknown/{_uuid.uuid4()}"
 
-    # 호스트 경로 → Spring Boot(Docker)가 인식할 수 있는 경로로 복원
-    translated_slides = [
-        {"page": s["page"], "imageUrl": to_response_path(s["imageUrl"], uploads_prefix)}
-        for s in slides
-    ]
+    s3_slides_prefix = f"{s3_parent}/slides"
+
+    # PPT 파일 S3 업로드 (PPTX → S3 원본 보관)
+    ext = os.path.splitext(ppt_path)[-1].lower()
+    content_type_map = {
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".ppt":  "application/vnd.ms-powerpoint",
+        ".pdf":  "application/pdf",
+    }
+    ppt_content_type = content_type_map.get(ext, "application/octet-stream")
+    ppt_s3_key = f"{s3_parent}/file{ext}"
+    ppt_s3_url = upload_to_s3(ppt_path, ppt_s3_key, content_type=ppt_content_type)
+
+    # 슬라이드 변환 및 S3 업로드
+    if ppt_path.lower().endswith(".pdf"):
+        slides = render_pdf_to_images(ppt_path, s3_slides_prefix)
+    else:
+        pdf_path, temp_dir = convert_ppt_to_pdf(ppt_path)
+        try:
+            slides = render_pdf_to_images(pdf_path, s3_slides_prefix)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     return {
-        "sourcePptUrl": to_response_path(ppt_path, uploads_prefix),
-        "totalSlides": len(translated_slides),
-        "slides": translated_slides
+        "sourcePptUrl": ppt_s3_url,
+        "totalSlides": len(slides),
+        "slides": slides,   # imageUrl이 이미 S3 URL
     }
 
 @router.websocket("/ws/practice/{practice_id}")

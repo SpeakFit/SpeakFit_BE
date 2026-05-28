@@ -67,6 +67,7 @@ public class PracticeServiceImpl implements PracticeService {
     private final ScriptContentParser scriptContentParser;
     private final JwtProvider jwtProvider;
     private final TargetMetricCalculator targetMetricCalculator;
+    private final com.speakfit.backend.global.infra.s3.S3Service s3Service;
 
     @Value("${app.websocket.base-url}")
     private String webSocketBaseUrl;
@@ -587,19 +588,13 @@ public class PracticeServiceImpl implements PracticeService {
         return sentenceList;
     }
 
-    // 오디오 파일 저장 헬퍼 메서드
+    // 오디오 파일 S3 업로드 헬퍼 메서드
     private String uploadAudioFile(Long practiceId, MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new CustomException(PracticeErrorCode.PRACTICE_AUDIO_EMPTY);
         }
         try {
-            Path uploadDirPath = Paths.get("uploads/audio/").toAbsolutePath().normalize();
-            if (!Files.exists(uploadDirPath)) Files.createDirectories(uploadDirPath);
-            String extension = getFileExtension(file.getOriginalFilename());
-            String fileName = practiceId + extension;
-            Path filePath = uploadDirPath.resolve(fileName).normalize();
-            Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
-            return Paths.get("uploads", "audio", fileName).toString();
+            return s3Service.upload(file, "audio");
         } catch (IOException e) {
             throw new CustomException(PracticeErrorCode.PRACTICE_AUDIO_UPLOAD_FAILED);
         }
