@@ -515,27 +515,8 @@ async def update_script(req: UpdateScriptRequest):
 
 @router.post("/ppt/convert")
 async def convert_ppt(req: ConvertPptRequest):
-    # 요청 경로에서 '/uploads/' 앞의 prefix 추출 (예: "/app")
-    # 응답 경로를 Spring Boot가 인식할 수 있는 형식으로 복원하기 위해 사용
-    def get_uploads_prefix(path):
-        normalized = path.replace("\\", "/")
-        idx = normalized.find("/uploads/")
-        return normalized[:idx] if idx >= 0 else ""
-
-    def to_response_path(host_path, prefix):
-        """호스트 절대 경로 → 요청과 동일한 prefix 형식의 경로로 변환
-        예: /home/ec2-user/.../uploads/ppt/1/slides/1.png
-         → /app/uploads/ppt/1/slides/1.png
-        Spring Boot의 toUploadUrl()이 이 경로를 받아 /uploads/... URL로 변환함
-        """
-        relative = os.path.relpath(host_path, UPLOAD_ROOT).replace("\\", "/")
-        return prefix + "/uploads/" + relative
-
-    uploads_prefix = get_uploads_prefix(req.pptPath)
-
     ppt_path = ensure_within_upload_root(req.pptPath, must_exist=True)
     output_dir = ensure_within_upload_root(req.outputDir)
-
     if ppt_path.lower().endswith(".pdf"):
         # PDF는 LibreOffice 변환 없이 바로 이미지 렌더링
         slides = render_pdf_to_images(ppt_path, output_dir)
@@ -545,17 +526,7 @@ async def convert_ppt(req: ConvertPptRequest):
         slides = render_pdf_to_images(pdf_path, output_dir)
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
-
-    # 호스트 경로 → Spring Boot(Docker)가 인식할 수 있는 경로로 복원
-    translated_slides = [
-        {"page": s["page"], "imageUrl": to_response_path(s["imageUrl"], uploads_prefix)}
-        for s in slides
-    ]
-    return {
-        "sourcePptUrl": to_response_path(ppt_path, uploads_prefix),
-        "totalSlides": len(translated_slides),
-        "slides": translated_slides
-    }
+    return {"sourcePptUrl": ppt_path, "totalSlides": len(slides), "slides": slides}
 
 @router.websocket("/ws/practice/{practice_id}")
 async def practice_websocket(websocket: WebSocket, practice_id: int):
