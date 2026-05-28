@@ -48,7 +48,7 @@ GOOGLE_STT_STREAM_ALLOWED_ENCODINGS = [
 ]
 
 # S3 설정 (Spring Boot .env와 동일한 키 사용)
-S3_BUCKET_NAME = os.getenv("CLOUD_AWS_S3_BUCKET", "")
-S3_REGION = os.getenv("CLOUD_AWS_REGION_STATIC", "ap-northeast-2")
-AWS_ACCESS_KEY_ID_VAL = os.getenv("CLOUD_AWS_CREDENTIALS_ACCESS_KEY", "")
-AWS_SECRET_ACCESS_KEY_VAL = os.getenv("CLOUD_AWS_CREDENTIALS_SECRET_KEY", "")
+S3_BUCKET_NAME = os.getenv("AWS_S3_BUCKET") or os.getenv("CLOUD_AWS_S3_BUCKET", "")
+S3_REGION = os.getenv("AWS_REGION") or os.getenv("CLOUD_AWS_REGION_STATIC", "ap-northeast-2")
+AWS_ACCESS_KEY_ID_VAL = os.getenv("AWS_ACCESS_KEY") or os.getenv("CLOUD_AWS_CREDENTIALS_ACCESS_KEY", "")
+AWS_SECRET_ACCESS_KEY_VAL = os.getenv("AWS_SECRET_KEY") or os.getenv("CLOUD_AWS_CREDENTIALS_SECRET_KEY", "")
