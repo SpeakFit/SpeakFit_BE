@@ -33,14 +33,17 @@ public class PptConvertAsyncServiceImpl implements PptConvertAsyncService {
     public void convertPptAsync(Long scriptId, Long userId, String sourcePptPath, Path uploadDirPath, String previousPptUrl) {
         try {
             PptConvertRes.Response convertResponse = requestPptConvert(sourcePptPath, getPptOutputDir(uploadDirPath));
+            // Python이 이미 S3 URL을 반환하므로 toUploadUrl() 변환 불필요
             List<UploadPptRes.PptSlideRes> slides = convertResponse.getSlides().stream()
                     .map(slide -> UploadPptRes.PptSlideRes.builder()
                             .page(slide.getPage())
-                            .imageUrl(toUploadUrl(Paths.get(slide.getImageUrl())))
+                            .imageUrl(slide.getImageUrl())
                             .build())
                     .toList();
 
-            scriptTxService.savePptSuccess(scriptId, userId, toUploadUrl(Paths.get(sourcePptPath)), convertResponse.getTotalSlides(), slides);
+            scriptTxService.savePptSuccess(scriptId, userId, convertResponse.getSourcePptUrl(), convertResponse.getTotalSlides(), slides);
+            // 변환 완료 후 로컬 PPTX 디렉토리 삭제 (파일은 S3에 보관)
+            deleteDirectoryQuietly(uploadDirPath);
             deletePreviousPptAttemptQuietly(previousPptUrl, uploadDirPath);
         } catch (Exception e) {
             log.error("PPT 변환 비동기 처리 실패 - scriptId: {}", scriptId, e);
@@ -83,22 +86,18 @@ public class PptConvertAsyncServiceImpl implements PptConvertAsyncService {
         return uploadDirPath.resolve("converted").normalize().toString();
     }
 
-    private String toUploadUrl(Path filePath) {
-        Path absoluteFilePath = filePath.toAbsolutePath().normalize();
-        if (!absoluteFilePath.startsWith(UPLOAD_ROOT_PATH)) {
-            return absoluteFilePath.toString().replace("\\", "/");
-        }
-
-        String relativePath = UPLOAD_ROOT_PATH.relativize(absoluteFilePath).toString().replace("\\", "/");
-        return "/uploads/" + relativePath;
-    }
-
     private Path toStoragePath(String uploadUrl) {
         if (uploadUrl == null || uploadUrl.isBlank()) {
             return null;
         }
 
         String normalizedUrl = uploadUrl.replace("\\", "/");
+
+        // S3 URL은 로컬 파일이 없으므로 null 반환 (삭제 불필요)
+        if (normalizedUrl.startsWith("http://") || normalizedUrl.startsWith("https://")) {
+            return null;
+        }
+
         if (normalizedUrl.startsWith("/uploads/")) {
             return UPLOAD_ROOT_PATH.resolve(normalizedUrl.substring("/uploads/".length())).normalize();
         }
