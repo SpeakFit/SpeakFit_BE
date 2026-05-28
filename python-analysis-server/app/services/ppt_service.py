@@ -22,12 +22,29 @@ def to_file_uri(path):
     normalized_path = os.path.abspath(path).replace("\\", "/")
     return "file://" + (normalized_path if normalized_path.startswith("/") else "/" + normalized_path)
 
+def translate_to_host_path(path):
+    """
+    Docker 컨테이너 경로(/app/uploads/...)를 호스트 경로(UPLOAD_ROOT/...)로 변환.
+    경로에서 '/uploads/' 이후 상대 경로를 추출해 UPLOAD_ROOT와 합침.
+    이미 호스트 경로이거나 상대 경로인 경우에도 안전하게 처리.
+    """
+    normalized = path.replace("\\", "/")
+    uploads_marker = "/uploads/"
+    idx = normalized.find(uploads_marker)
+    if idx >= 0:
+        relative = normalized[idx + len(uploads_marker):]
+        return os.path.normpath(os.path.join(UPLOAD_ROOT, relative))
+    return path
+
 def ensure_within_upload_root(path, must_exist=False):
-    absolute_path = os.path.abspath(path)
+    # Docker 경로 → 호스트 경로 변환 후 검증
+    absolute_path = translate_to_host_path(path)
     try:
         common_path = os.path.commonpath([UPLOAD_ROOT, absolute_path])
         if common_path != UPLOAD_ROOT:
             raise HTTPException(status_code=400, detail="Path is outside the allowed uploads directory")
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid path")
 
