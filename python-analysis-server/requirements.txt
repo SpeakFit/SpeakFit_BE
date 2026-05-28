@@ -9,4 +9,3 @@ google-cloud-speech
 python-dotenv
 PyMuPDF
 static-ffmpeg
-boto3
