@@ -24,6 +24,7 @@ public interface PracticeRepository extends JpaRepository<PracticeRecord, Long> 
 
     // FETCH JOIN을 사용하여 연관된 script와 speechStyle을 미리 로드합니다.
     @Query("SELECT p FROM PracticeRecord p " +
+            "JOIN FETCH p.user " +
             "JOIN FETCH p.script " +
             "left JOIN FETCH p.speechStyle " +
             "WHERE p.id = :id")
