@@ -85,8 +85,8 @@ def generate_ai_feedback(features, req: AnalyzeRequest):
     [발표 상황 정보]
     - 청중: {req.audienceType} (이해도: {req.audienceUnderstanding})
     - 발표 종류: {req.speechInformation}
-    - 목표 스타일: {styleType}
-    - 낭독 기호 대본: {markedContent}
+    - 목표 스타일: {style_type}
+    - 낭독 기호 대본: {marked_content}
 
     [음성 분석 데이터]
     - 속도: {features['avgWpm']:.1f} WPM
