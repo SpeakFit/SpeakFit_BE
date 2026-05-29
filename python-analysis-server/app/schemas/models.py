@@ -16,12 +16,12 @@ class AnalyzeRequest(BaseModel):
     practiceId: int
     audioUrl: str
     content: Optional[str] = None
-    markedContent: str
+    markedContent: Optional[str] = None
     scriptWords: List[ScriptWordPayload] = Field(default_factory=list)
     audienceType: str
     audienceUnderstanding: str
     speechInformation: str
-    styleType: str
+    styleType: Optional[str] = None
 
 class MarkRequest(BaseModel):
     content: str

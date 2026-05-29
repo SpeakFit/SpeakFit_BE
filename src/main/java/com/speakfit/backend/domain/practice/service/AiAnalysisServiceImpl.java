@@ -15,6 +15,7 @@ import com.speakfit.backend.domain.style.entity.SpeechStyle;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -81,6 +82,13 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
                 .uri("/analyze")
                 .bodyValue(body)
                 .retrieve()
+                .onStatus(HttpStatusCode::isError, response -> response.bodyToMono(String.class)
+                        .defaultIfEmpty("")
+                        .map(responseBody -> new IllegalStateException(String.format(
+                                "Python analysis request failed: status=%s, body=%s",
+                                response.statusCode(),
+                                responseBody
+                        ))))
                 .bodyToMono(PythonAnalysisRes.class)
                 .block(); // 비동기 스레드 내에서 호출되므로 block() 사용 가능
     }
