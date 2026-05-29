@@ -1,4 +1,5 @@
 import json
+import mimetypes
 import os
 import time
 from app.core.config import (
@@ -50,8 +51,9 @@ def transcribe_audio_with_gemini(file_path):
     try:
         import google.generativeai as genai
         
-        print(f"[Python] Uploading audio to Gemini: {file_path}")
-        audio_file = genai.upload_file(path=file_path, mime_type="audio/webm")
+        mime_type = guess_audio_mime_type(file_path)
+        print(f"[Python] Uploading audio to Gemini: {file_path}, mime_type={mime_type}")
+        audio_file = genai.upload_file(path=file_path, mime_type=mime_type)
         
         # 파일 처리가 완료될 때까지 잠시 대기
         while audio_file.state.name == "PROCESSING":
@@ -89,6 +91,28 @@ def transcribe_audio_with_gemini(file_path):
     except Exception as e:
         print(f"[Python] Gemini STT failed: {e}")
         return None
+
+
+def guess_audio_mime_type(file_path):
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if mime_type and mime_type.startswith("audio/"):
+        return mime_type
+
+    extension = os.path.splitext(file_path)[1].lower()
+    if extension == ".webm":
+        return "audio/webm"
+    if extension == ".m4a":
+        return "audio/mp4"
+    if extension == ".mp4":
+        return "audio/mp4"
+    if extension == ".ogg":
+        return "audio/ogg"
+    if extension == ".wav":
+        return "audio/wav"
+    if extension == ".mp3":
+        return "audio/mpeg"
+
+    return "audio/webm"
 
 
 def transcribe_audio_with_google(file_path, duration_sec=None):

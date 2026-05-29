@@ -21,7 +21,7 @@ from app.schemas.models import (
 )
 from app.services.voice_service import (
     analyze_voice_features, build_aligned_word_results,
-    build_sentence_results, build_issue_results
+    build_sentence_results, build_issue_results, build_skipped_word_results
 )
 from app.services.stt_service import transcribe_audio
 from app.services.ai_service import (
@@ -449,6 +449,17 @@ def decode_base64url(value):
     return base64.urlsafe_b64decode(padded.encode("utf-8"))
 
 
+def extract_s3_key_from_url(audio_url, bucket_name):
+    from urllib.parse import unquote, urlparse
+
+    parsed = urlparse(audio_url)
+    key = unquote(parsed.path.lstrip("/"))
+    if bucket_name and key.startswith(f"{bucket_name}/"):
+        key = key[len(bucket_name) + 1:]
+
+    return key
+
+
 # --- Endpoints ---
 
 @router.post("/analyze")
@@ -461,9 +472,7 @@ async def run_analysis(req: AnalyzeRequest):
         # S3 URL → boto3로 임시 파일 다운로드 (퍼블릭 액세스 불필요, credentials 사용)
         from app.services.s3_service import get_s3_client
         from app.core.config import S3_BUCKET_NAME
-        from urllib.parse import urlparse
-        parsed = urlparse(audio_path)
-        s3_key = parsed.path.lstrip("/")
+        s3_key = extract_s3_key_from_url(audio_path, S3_BUCKET_NAME)
         suffix = os.path.splitext(s3_key)[-1] or ".webm"
         tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
         tmp_file.close()
@@ -494,11 +503,11 @@ async def run_analysis(req: AnalyzeRequest):
         stt_words = transcribe_audio(audio_path, duration)
         
         if stt_words is None:
-            print("[Python ERROR] STT process failed completely.")
-            raise HTTPException(status_code=502, detail="STT processing failed")
+            print("[Python WARN] STT process failed. Continuing analysis with skipped word results.")
+            stt_words = []
 
         # 3. 결과 조립
-        word_results = build_aligned_word_results(req.scriptWords, stt_words)
+        word_results = build_aligned_word_results(req.scriptWords, stt_words) if stt_words else build_skipped_word_results(req.scriptWords)
         sentence_results = build_sentence_results(req.scriptWords, word_results, features)
         issue_results = build_issue_results(sentence_results)
         ai_feedback = generate_ai_feedback(features, req)
@@ -538,6 +547,10 @@ async def update_script(req: UpdateScriptRequest):
 
 @router.post("/ppt/convert")
 async def convert_ppt(req: ConvertPptRequest):
+    return await asyncio.to_thread(convert_ppt_sync, req)
+
+
+def convert_ppt_sync(req: ConvertPptRequest):
     # 로컬 PPTX 경로 (Docker 경로 → 호스트 경로 변환)
     ppt_path = ensure_within_upload_root(req.pptPath, must_exist=True)
 

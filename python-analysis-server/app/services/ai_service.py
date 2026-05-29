@@ -69,6 +69,8 @@ def _fallback_script_response(field_name, response_text=None):
 
 def generate_ai_feedback(features, req: AnalyzeRequest):
     """Gemini를 사용한 심층 피드백 생성"""
+    style_type = req.styleType or "미선택"
+    marked_content = req.markedContent or req.content or ""
     if not model:
         return {
             "aiSummary": "훌륭한 발표였습니다!", "wpmSummary": "적절한 속도", "wpmFeedback": "좋습니다.",
@@ -83,8 +85,8 @@ def generate_ai_feedback(features, req: AnalyzeRequest):
     [발표 상황 정보]
     - 청중: {req.audienceType} (이해도: {req.audienceUnderstanding})
     - 발표 종류: {req.speechInformation}
-    - 목표 스타일: {req.styleType}
-    - 낭독 기호 대본: {req.markedContent}
+    - 목표 스타일: {style_type}
+    - 낭독 기호 대본: {marked_content}
 
     [음성 분석 데이터]
     - 속도: {features['avgWpm']:.1f} WPM
