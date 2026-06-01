@@ -73,13 +73,13 @@ public class SecurityConfig {
                                 "/v3/api-docs/**",
                                 "/swagger-ui.html"
                         ).permitAll()
-                        .requestMatchers("/api/terms/**", "/api/styles/**").permitAll()
+                        .requestMatchers("/api/terms/**").permitAll()
+                        .requestMatchers("/api/styles/**").authenticated()
                         .requestMatchers("/auth/**").permitAll()
                         .requestMatchers("/uploads/**").permitAll()
                         // PRIVATE
-                        .requestMatchers("/api/practices",
-                                "/api/scripts",
-                                "/api/scripts/"
+                        .requestMatchers("/api/practices/**",
+                                "/api/scripts/**"
                         ).authenticated()
                         // 나머지
                         .anyRequest().authenticated()

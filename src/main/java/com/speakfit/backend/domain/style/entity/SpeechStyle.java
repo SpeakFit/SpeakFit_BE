@@ -33,8 +33,11 @@ public class SpeechStyle {
     @Column(name = "description", nullable = false, length = 255)
     private String description;
 
-    @Column(name = "sample_audio_url", length = 500, nullable = false)
-    private String sampleAudioUrl;
+    @Column(name = "sample_audio_url_male", length = 500, nullable = false)
+    private String sampleAudioUrlMale;
+
+    @Column(name = "sample_audio_url_female", length = 500, nullable = false)
+    private String sampleAudioUrlFemale;
 
     @Column(name = "sort_order", nullable = false)
     private Integer sortOrder;
