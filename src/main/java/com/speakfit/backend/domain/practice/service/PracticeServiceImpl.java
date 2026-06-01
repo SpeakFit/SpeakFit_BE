@@ -111,7 +111,11 @@ public class PracticeServiceImpl implements PracticeService {
                         .styleType(style.getStyleType())
                         .displayName(style.getDisplayName())
                         .description(style.getDescription())
-                        .guideAudioUrl(style.getSampleAudioUrl())
+                        .guideAudioUrl(
+                                user.getGender() == com.speakfit.backend.domain.user.enums.Gender.FEMALE
+                                        ? style.getSampleAudioUrlFemale()
+                                        : style.getSampleAudioUrlMale()
+                        )
                         .targetMetrics(toInputPracticeTargetMetrics(
                                 targetMetricCalculator.calculate(
                                         user,

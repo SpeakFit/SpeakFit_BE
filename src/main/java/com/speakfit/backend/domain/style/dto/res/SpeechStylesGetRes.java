@@ -14,11 +14,11 @@ public class SpeechStylesGetRes {
 
     @Getter
     @Builder
-    public static class StyleItem{
+    public static class StyleItem {
         private Long styleId;
         private StyleType styleType;
         private String displayName;
         private String description;
-        private String sampleAudioUrl;
+        private String sampleAudioUrl;  // 사용자 성별에 맞는 URL
     }
 }
