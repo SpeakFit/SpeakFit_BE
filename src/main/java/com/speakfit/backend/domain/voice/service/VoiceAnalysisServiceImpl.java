@@ -101,8 +101,12 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
             File tempFile = tempPath.toFile();
             voiceFile.transferTo(tempFile);
 
+            // [STEP 2-B] gender를 Python /voice-analysis에 전달 (pitch 성별 필터용)
             MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
             body.add("voiceFile", new FileSystemResource(tempFile));
+            if (user.getGender() != null) {
+                body.add("gender", user.getGender().name());
+            }
 
             PythonVoiceAnalysisRes response = pythonWebClient.post()
                     .uri("/voice-analysis")

@@ -81,9 +81,11 @@ def transcribe_audio_with_gemini(file_path):
             
         words = json.loads(text)
         
-        # confidence 값 보정 (Gemini는 개별 단어 점수를 주지 않으므로 기본값 설정)
+        # [STEP 6] Gemini는 word-level confidence를 반환하지 않으므로 추정값(0.75) 사용.
+        # 0.95로 하드코딩하면 발음 점수가 실제보다 과대 평가됨.
+        # Google STT가 primary이고 Gemini는 60초 초과/폴백 전용 보조.
         for w in words:
-            w["confidence"] = 0.95
+            w.setdefault("confidence", 0.75)
             w["isFinal"] = True
             
         print(f"[Python] Gemini STT completed: words={len(words)}")

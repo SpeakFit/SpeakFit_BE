@@ -13,7 +13,7 @@ import tempfile
 import traceback
 from pathlib import Path
 from difflib import SequenceMatcher
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import APIRouter, Form, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 
 from app.schemas.models import (
     AnalyzeRequest, MarkRequest, GenerateScriptRequest,
@@ -32,7 +32,12 @@ from app.services.ppt_service import (
     ensure_within_upload_root, convert_ppt_to_pdf, render_pdf_to_images
 )
 from app.services.s3_service import upload_to_s3
-from app.utils.helpers import clamp, normalize_match_text
+# [STEP 7] 공유 임계값 import — voice_service.py와 동일 소스 참조
+from app.utils.helpers import (
+    clamp, normalize_match_text,
+    MATCH_THRESHOLD, SHORT_WORD_MATCH_THRESHOLD,
+    REALTIME_MIN_SCORE, REALTIME_CORRECT_THRESHOLD,
+)
 from app.core.config import (
     GOOGLE_STT_ENABLED, GOOGLE_STT_SAMPLE_RATE,
     GOOGLE_STT_LANGUAGE_CODE, GOOGLE_STT_ENCODING, GOOGLE_STT_INTERIM_RESULTS,
@@ -284,12 +289,14 @@ class GoogleStreamingSttSession:
                     }
 
             # 현재 단어 결과 기록 (점수가 낮아도 포함시켜서 빨간색으로 표시되게 함)
+            # [STEP 7-A 연동] distance penalty 수정 후 반환 점수가 낮아졌으므로
+            # isCorrect 임계값을 0.75 → 0.68로 조정 (distance=1 기준 base 0.74 수용)
             word_result = {
                 "globalWordIndex": global_word_index,
                 "expectedWord": script_word.get("text") or "",
                 "spokenWord": spoken_text,
                 "matchScore": round(float(score), 3),
-                "isCorrect": score >= 0.75,
+                "isCorrect": score >= REALTIME_CORRECT_THRESHOLD,
             }
             self.word_results_by_index[global_word_index] = word_result
             
@@ -358,7 +365,7 @@ def find_realtime_token_match(script_words, token, search_start):
         return None
 
     script_word, score = match
-    return script_word if score >= 0.72 else None
+    return script_word if score >= MATCH_THRESHOLD else None
 
 
 def find_realtime_token_feedback(script_words, token, search_start):
@@ -390,12 +397,15 @@ def find_realtime_token_feedback(script_words, token, search_start):
             best_score = adjusted_score
             best_word = script_word
 
-    if not best_word or best_score < 0.4: # 최소 일치 기준 미달 시 무시
+    if not best_word or best_score < REALTIME_MIN_SCORE: # 최소 일치 기준 미달 시 무시
         return None
 
-    # 반환할 때는 감점되지 않은 원본 유사도 점수를 기반으로 한 피드백 정보를 넘깁니다.
-    # 단, 결과 판단은 adjusted_score로 수행하여 '위치 적합성'을 보장했습니다.
-    return best_word, max(best_score + (abs(best_word.get("globalWordIndex", 0) - search_start) * 0.04), 0.0)
+    # [STEP 7-A] 이중 패널티 버그 수정:
+    # adjusted_score = base_score - distance_penalty 로 비교했고 best_word는 그 결과.
+    # 반환 시 다시 distance_penalty를 더하면 패널티가 상쇄되어 원본 base_score에 근접.
+    # 올바른 반환값은 adjusted_score (이미 패널티 적용된 값) 그대로.
+    # 단, 최소 0을 보장.
+    return best_word, max(best_score, 0.0)
 
 
 def calculate_realtime_similarity(script_text, spoken_text):
@@ -460,6 +470,72 @@ def extract_s3_key_from_url(audio_url, bucket_name):
     return key
 
 
+# --- Goal Similarity Score (STEP 5-D) ---
+
+def calculate_goal_similarity_score(features: dict, target_metrics: dict) -> float:
+    """규칙 기반 목표 스타일 유사도 점수 산출 (0~100).
+
+    가중치: WPM 40% | Pitch 30% | Pause 20% | Intensity 10%
+    각 항목 편차율을 §7 Guard 범위로 정규화하여 개별 점수 산출.
+    targetMetrics가 없거나 항목이 null이면 해당 항목을 건너뛰고 나머지 가중치로 정규화.
+    """
+    weights = {
+        "wpm":       0.40,
+        "pitch":     0.30,
+        "pause":     0.20,
+        "intensity": 0.10,
+    }
+
+    def item_score(actual, target, guard_ratio):
+        """편차율 → 개별 항목 점수 (0~100). guard_ratio 이상 편차 시 0점."""
+        if actual is None or target is None or target == 0:
+            return None
+        deviation = abs(actual - target) / abs(target)
+        return max(0.0, 1.0 - deviation / guard_ratio) * 100.0
+
+    WPM_GUARD    = 0.20  # §7
+    PITCH_GUARD  = 0.20  # §7
+    DB_GUARD     = 6.0   # §7 절댓값 dB
+    PAUSE_GUARD  = 17.0  # §7 pause 범위 폭(25-8)
+
+    scores = {}
+    scores["wpm"]   = item_score(features.get("avgWpm"),       target_metrics.get("targetWpm"),   WPM_GUARD)
+    scores["pitch"] = item_score(features.get("avgPitch"),     target_metrics.get("targetPitch"), PITCH_GUARD)
+
+    # Pause: pauseRatio (0~1) vs targetPauseRatio (%) 단위 통일 필요
+    actual_pause_pct  = (features.get("pauseRatio") or 0.0) * 100.0
+    target_pause_pct  = target_metrics.get("targetPauseRatio")
+    if target_pause_pct is not None and PAUSE_GUARD > 0:
+        scores["pause"] = max(0.0, 1.0 - abs(actual_pause_pct - target_pause_pct) / PAUSE_GUARD) * 100.0
+    else:
+        scores["pause"] = None
+
+    # Intensity: dBFS 절댓값 편차 vs guard dB
+    actual_db  = features.get("avgIntensity")
+    target_db  = target_metrics.get("targetIntensity")
+    if actual_db is not None and target_db is not None and DB_GUARD > 0:
+        scores["intensity"] = max(0.0, 1.0 - abs(actual_db - target_db) / DB_GUARD) * 100.0
+    else:
+        scores["intensity"] = None
+
+    # 가중 평균 (null 항목은 제외 후 가중치 재정규화)
+    total_weight = sum(weights[k] for k, v in scores.items() if v is not None)
+    if total_weight == 0:
+        return 0.0
+
+    weighted_sum = sum(weights[k] * v for k, v in scores.items() if v is not None)
+    raw = weighted_sum / total_weight
+    # [리뷰] 부동소수점 오차 방어 — 명시적 0~100 클램핑
+    result = round(clamp(raw, 0.0, 100.0) * 10) / 10
+
+    print(
+        f"[Python STEP5-D] goalSimilarityScore={result} "
+        f"| wpm={scores['wpm']}, pitch={scores['pitch']}, pause={scores['pause']}, intensity={scores['intensity']}",
+        flush=True
+    )
+    return result
+
+
 # --- Endpoints ---
 
 @router.post("/analyze")
@@ -487,7 +563,19 @@ async def run_analysis(req: AnalyzeRequest):
         audio_path = os.path.join(UPLOAD_ROOT, audio_path.replace("uploads/", ""))
 
     print(f"[Python] Starting analysis for file: {audio_path}")
-    
+
+    # [STEP 4-C] targetMetrics 수신 확인 로그 (STEP 5 규칙 평가에서 실제 사용)
+    if req.targetMetrics:
+        tm = req.targetMetrics
+        print(
+            f"[Python STEP4] targetMetrics 수신 완료 — "
+            f"WPM={tm.targetWpm}, Pitch={tm.targetPitch}, "
+            f"Intensity={tm.targetIntensity}, ZCR={tm.targetZcr}, Pause={tm.targetPauseRatio}",
+            flush=True
+        )
+    else:
+        print("[Python STEP4] targetMetrics 없음 — styleType 미설정 또는 베이스라인 부재", flush=True)
+
     if not os.path.exists(audio_path):
         print(f"[Python ERROR] Audio file not found at: {audio_path}")
         raise HTTPException(status_code=404, detail=f"Audio file not found: {audio_path}")
@@ -521,10 +609,17 @@ async def run_analysis(req: AnalyzeRequest):
                 )
 
         # 3. 결과 조립
+        # [STEP 4-C] target_metrics를 dict로 변환하여 하위 함수에 전달 준비
+        # STEP 5에서 build_sentence_results가 실제 규칙 평가에 사용
+        target_metrics_dict = req.targetMetrics.model_dump() if req.targetMetrics else {}
+
         word_results = build_aligned_word_results(req.scriptWords, stt_words) if stt_words else build_skipped_word_results(req.scriptWords)
-        sentence_results = build_sentence_results(req.scriptWords, word_results, features)
+        sentence_results = build_sentence_results(req.scriptWords, word_results, features, target_metrics_dict)
         issue_results = build_issue_results(sentence_results)
-        ai_feedback = generate_ai_feedback(features, req)
+
+        # [STEP 5-D] 규칙 기반 goalSimilarityScore 산출 (Gemini 환각 제거)
+        goal_similarity_score = calculate_goal_similarity_score(features, target_metrics_dict)
+        ai_feedback = generate_ai_feedback(features, req, goal_similarity_score)
 
         print(f"[Python] Analysis successful for practice {req.practiceId}")
         return {
@@ -654,6 +749,13 @@ async def practice_websocket(websocket: WebSocket, practice_id: int):
                             audio_encoding=audio_encoding,
                             sample_rate_hertz=sample_rate_hertz
                         )
+                        # [STEP 7-B] 재접속 시 클라이언트가 마지막 confirmed index를 전달하면 복원.
+                        # 첫 접속이면 -1(기본값) 유지, 재접속이면 해당 위치부터 이어서 진행.
+                        resumed_index = data.get("confirmedGlobalWordIndex")
+                        if resumed_index is not None and int(resumed_index) >= 0:
+                            stt_session.confirmed_global_word_index = int(resumed_index)
+                            stt_session.last_partial_global_word_index = int(resumed_index)
+                            print(f"[WS STEP7] 재접속 confirmed index 복원: {resumed_index}", flush=True)
                         if not stt_session.start():
                             print("[WS] Failed to start Google STT session", flush=True)
                             await websocket.send_json({
@@ -698,15 +800,19 @@ async def practice_websocket(websocket: WebSocket, practice_id: int):
             stt_session.stop()
 
 @router.post("/voice-analysis")
-async def analyze_voice_api(voiceFile: UploadFile = File(...)):
+async def analyze_voice_api(
+    voiceFile: UploadFile = File(...),
+    gender: str = Form(None)   # [STEP 2] Java에서 user.getGender().name() 전달 ('MALE'/'FEMALE')
+):
     """
-    사용자 음색 분석 요청 API
+    사용자 음색 분석 요청 API (베이스라인 산출)
 
-    요청된 예문 녹음 파일을 임시 저장하고, Librosa 기반의 음성 특징 분석 함수를 호출하여
-    평균 피치(Pitch)와 발화 속도(WPM) 등의 분석 결과를 반환합니다.
+    요청된 자유발화 녹음 파일을 분석해 개인 Baseline(WPM, Pitch) 값을 반환합니다.
+    - [STEP 1] sr=16000, 10초 로드 기준
+    - [STEP 2] STT로 음절/분 WPM 산출 + gender 기반 Pitch 필터 적용
 
     - Content-Type: multipart/form-data
-    - Request Body: voiceFile (File, 필수)
+    - Request Body: voiceFile (File, 필수), gender (str, 선택: 'MALE'/'FEMALE')
     - Response:
         - 성공 시 (200 OK): 분석 결과 및 상태 반환
         - 실패 시 (422 Unprocessable Entity): 목소리 미감지 시 에러 메시지 반환
@@ -714,11 +820,11 @@ async def analyze_voice_api(voiceFile: UploadFile = File(...)):
     """
     temp_path = None
     try:
-        # 클라이언트의 파일 이름으로부터 확장자를 추출
         suffix = Path(voiceFile.filename or "").suffix
         print(
             "[Python] Voice analysis upload received: "
-            f"filename={voiceFile.filename}, content_type={voiceFile.content_type}, suffix={suffix}",
+            f"filename={voiceFile.filename}, content_type={voiceFile.content_type}, "
+            f"suffix={suffix}, gender={gender}",
             flush=True
         )
 
@@ -734,9 +840,9 @@ async def analyze_voice_api(voiceFile: UploadFile = File(...)):
             flush=True
         )
 
-        # 2. 음성 분석 함수 호출
-        # [STEP 1] 베이스라인 분석은 sr=16000, 10초 로드 — 분석 스크립트(자유대화음성분석.py) 기준
-        features = analyze_voice_features(temp_path, max_duration=10)
+        # 2. [STEP 1] 1차 특징 추출 — sr=16000, 10초 로드, gender로 Pitch 필터 적용
+        # onset fallback WPM은 STT 후 재계산 예정
+        features = analyze_voice_features(temp_path, gender=gender, max_duration=10)
 
         if not features:
             print(
@@ -749,7 +855,30 @@ async def analyze_voice_api(voiceFile: UploadFile = File(...)):
                 detail="목소리가 감지되지 않았습니다. 조용한 곳에서 다시 녹음해주세요."
             )
 
-        # 3. Spring이 baseline id를 관리하므로 Python은 분석값만 반환
+        # 3. [STEP 2] STT로 음절/분 WPM 재계산
+        # 자유발화이므로 script 없이 STT 텍스트만 추출해 음절 수 산정
+        duration = features.get("durationSec", 0)
+        try:
+            stt_words = transcribe_audio(temp_path, duration)
+            if stt_words and duration > 0:
+                full_stt_text = " ".join(w.get("word", "") for w in stt_words if w.get("word"))
+                syllable_count = len(full_stt_text.replace(" ", ""))
+                if syllable_count > 0:
+                    features["avgWpm"] = float(syllable_count / (duration / 60))
+                    print(
+                        f"[Python] Baseline WPM 재계산 (음절/분): {features['avgWpm']:.1f}"
+                        f" | syllables={syllable_count}, duration={duration:.2f}s",
+                        flush=True
+                    )
+                else:
+                    print("[Python WARN] STT 결과 음절 없음 — onset fallback WPM 유지", flush=True)
+            else:
+                print("[Python WARN] STT 결과 없음 — onset fallback WPM 유지", flush=True)
+        except Exception as stt_err:
+            # STT 실패는 치명적이지 않음 — onset fallback WPM으로 진행
+            print(f"[Python WARN] Baseline STT 실패, fallback 유지: {stt_err}", flush=True)
+
+        # 4. Spring이 baseline id를 관리하므로 Python은 분석값만 반환
         return {
             "avg_pitch": features.get("avgPitch", 0.0),
             "avg_wpm": features.get("avgWpm", 0.0),

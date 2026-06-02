@@ -41,12 +41,13 @@
 - **[사용 데이터]** 자유대화음성분석.py 추출 정의(sr=16000, 10초 로드), §7 임계값.
 - **[완료 확인]** `voice_service.py` analyze_voice_features 수정 (sr=16000 고정, yin median + 성별 필터, dBFS, 음절/분 WPM, wpmDiff 하드코딩 제거). `models.py` AnalyzeRequest에 gender 필드 추가. `endpoints.py` /analyze STT→WPM 재계산, /voice-analysis max_duration=10 적용.
 
-### STEP 2. 사용자 베이스라인 산출
+### STEP 2. 사용자 베이스라인 산출 ✅ 완료
 - **[지적 요약]** 개인화의 출발점인 사용자 고유 톤(Baseline)이 파이프라인에 명시적으로 없음.
 - **[해결]** STEP 1 통일 단위로 사용자 자유발화를 측정해 개인 Baseline(WPM, Pitch) 저장. 지역/성별 §4 값은 데이터 부재 시 **fallback 기본 베이스라인**으로만 사용.
 - **[사용 데이터]** §4 자유대화 베이스라인(지역×성별 10행).
+- **[완료 확인]** `endpoints.py` /voice-analysis에 gender Form 수신 + STT 음절/분 WPM 재계산 추가(STEP 2-A). `VoiceAnalysisServiceImpl.java` multipart body에 user.getGender().name() 전달(STEP 2-B). `BaselineRegionalMetric` 엔티티 + `BaselineRegionalMetricRepository` 생성, `baseline_regional_metric_insert.sql` 10행 작성(STEP 2-C). `GuideServiceImpl` 하드코딩 150.0/130.0을 §4 DB lookup(gender+dialect 키)으로 교체(STEP 2-D).
 
-### STEP 3. 가이드/목표치 계산 일원화
+### STEP 3. 가이드/목표치 계산 일원화 ✅ 완료
 - **[지적 요약]** `GuideServiceImpl`이 `targetDb=63.72` 등 고정값을 쓰고, 스타일 판별을 `selectedStyle.contains("열정적인")` 문자열 매칭으로 처리. `matchingRate`가 후보군 max에 대한 **상대값**이라 절대 적합도가 아님. `guideId(1L)` 하드코딩.
 - **[해결]**
   1. **목표치 = 사용자 Baseline × §5 보정배율** (지역/성별/스타일 키로 조회).
@@ -54,23 +55,25 @@
   3. 청중(이해도×연령) 설정 시 §8 매트릭스 오프셋 적용.
   4. `matchingRate`를 군집 중심점과의 **거리 기반 절대 적합도**로 재정의(피처 정규화 후 유클리드). 문자열 매칭 → 스타일 enum/키 매핑.
 - **[사용 데이터]** §3 군집 중심점, §5 보정배율, §6 Gold Standard, §7 임계값, §8 청중 매트릭스.
+- **[완료 확인]** `StyleType.fromKoreanLabel()` 추가로 문자열 매칭 일원화(STEP 3-A). `matchingRate`를 §5 ratio 투영 후 정규화 유클리드 절대 적합도로 재정의(NORM_WPM=40, NORM_PITCH=200, STEP 3-B). `CreateGuideReq`에 audienceUnderstanding/audienceAgeGroup optional 추가, §8 WPM/Pause/dB clamp 적용(STEP 3-C). §6/§7 상수 클래스 레벨로 추출, WPM/Pitch/dB/Pause 가드레일 일원화(STEP 3-D). `guideId(1L)` → null 처리(STEP 3-E).
 
-### STEP 4. targetMetrics 전달 경로 복구
+### STEP 4. targetMetrics 전달 경로 복구 ✅ 완료
 - **[지적 요약]** Java `AiAnalysisServiceImpl.buildTargetMetricsPayload()`가 targetMetrics를 보내지만 Python `AnalyzeRequest` 스키마에 필드가 없어 폐기됨.
 - **[해결]** `schemas/models.py`의 `AnalyzeRequest`에 `targetMetrics`(targetWpm/targetPitch/targetIntensity/targetZcr/targetPauseRatio) 필드 추가. Python 분석/평가가 이 목표치를 사용하도록 연결.
 - **[사용 데이터]** STEP 3 계산 결과(= §5 × Baseline + §6/§8).
+- **[완료 확인]** `models.py`에 `TargetMetrics` Pydantic 모델 + `AnalyzeRequest.targetMetrics` 필드 추가(STEP 4-A). `AiAnalysisServiceImpl.requestPythonAnalysis()`에 `gender` body 추가 — STEP 1에서 schema만 수정하고 Java 전달이 누락된 항목 복구(STEP 4-B). `/analyze` 엔드포인트에서 `req.targetMetrics` 수신 로그 + `build_sentence_results`에 `target_metrics` 파라미터 전달(STEP 4-C). `build_sentence_results` signature에 `target_metrics=None` 추가 — 실제 규칙 평가 적용은 STEP 5에서.
 
-### STEP 5. 규칙 기반 평가로 전환
+### STEP 5. 규칙 기반 평가로 전환 ✅ 완료
 - **[지적 요약]** `calculate_sentence_score`가 임의 패널티(skipped×50, mismatch×35, speed cap 18, pause cap 12)를 쓰고, Gemini가 `goalSimilarityScore`를 환각 생성하며, 오디오 없이 `symbolFeedback`을 판정.
 - **[해결]** 점수는 **측정 피처 vs 목표치(STEP 3) 편차 → §7 임계값 이탈 여부**로 규칙 산출. Gemini는 점수 생성이 아니라 **규칙 결과를 자연어로 설명**하는 역할로 한정. 오디오 없는 기호 판정 제거.
 - **[사용 데이터]** §6 Gold Standard 정상/이탈 범위, §7 임계값, §8 청중 범위.
 
-### STEP 6. STT 신뢰도 정상화
+### STEP 6. STT 신뢰도 정상화 ✅ 완료
 - **[지적 요약]** `stt_service.py`가 모든 단어 `confidence=0.95` 하드코딩, 타임스탬프를 LLM이 추측.
 - **[해결]** Google STT의 실제 word-level confidence/timestamp 사용. Gemini STT는 보조로만. 매칭 임계값(MATCH_THRESHOLD 0.72 등)을 실제 confidence와 결합해 재튜닝. `helpers.normalize_match_text`에 조사/자모 정규화 보강.
 - **[사용 데이터]** 해당 없음(엔지니어링 수정). 단, 평가 가중치는 STEP 5 규칙과 정합.
 
-### STEP 7. 실시간 싱크 로직 일원화
+### STEP 7. 실시간 싱크 로직 일원화 ✅ 완료
 - **[지적 요약]** `find_realtime_token_feedback`의 이중 패널티 버그(`max(best_score + distance*0.04, 0)` — 패널티를 다시 더함), 스트리밍 재접속 시 `confirmed_global_word_index`가 -1로 리셋.
 - **[해결]** 거리 패널티 부호 수정(감산), 재접속 시 confirmed index 인수인계. 실시간/사후 매칭이 동일한 정규화·임계값을 공유하도록 단일 모듈화.
 - **[사용 데이터]** 해당 없음(알고리즘 버그 수정).

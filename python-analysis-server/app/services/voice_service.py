@@ -2,17 +2,17 @@ import librosa
 import numpy as np
 import os
 from difflib import SequenceMatcher
-from app.utils.helpers import clamp, normalize_match_text
+# [STEP 7] 공유 임계값은 helpers.py 단일 소스에서 import
+from app.utils.helpers import (
+    clamp, normalize_match_text,
+    MATCH_THRESHOLD, SHORT_WORD_MATCH_THRESHOLD,
+)
 
 MIN_STT_CONFIDENCE = 0.1
-MATCH_THRESHOLD = 0.72
-SHORT_WORD_MATCH_THRESHOLD = 0.9
+# MATCH_THRESHOLD, SHORT_WORD_MATCH_THRESHOLD → helpers.py로 이전 (중복 제거)
 PRONUNCIATION_SCORE_THRESHOLD = 0.72
 LOW_PRONUNCIATION_THRESHOLD = 0.68
 ALIGNMENT_LOOKAHEAD = 8
-TARGET_WPM = 130
-FAST_WPM_THRESHOLD = 170
-SLOW_WPM_THRESHOLD = 80
 LONG_PAUSE_GAP_MS = 700
 MIN_WORD_DURATION_MS = 300
 ISSUE_LIMIT = 5
@@ -20,6 +20,24 @@ LOW_CONFIDENCE_THRESHOLD = 0.7
 LOW_SCORE_THRESHOLD = 70
 SKIPPED_RATIO_THRESHOLD = 0.15
 MISMATCH_RATIO_THRESHOLD = 0.15
+
+# ── §7 임계값 기반 규칙 점수 상수 (STEP 5) ─────────────────────────────────
+# targetWpm 없을 때 fallback 기본 WPM 범위
+WPM_DEFAULT_MIN   = 100.0   # §7 하한
+WPM_DEFAULT_MAX   = 180.0   # §7 상한
+WPM_DEFAULT_MID   = (WPM_DEFAULT_MIN + WPM_DEFAULT_MAX) / 2.0  # 140 음절/분
+
+# WPM 편차 허용 범위
+WPM_OK_RATIO      = 0.10    # targetWpm 대비 ±10% 이내 → 만점
+WPM_GUARD_RATIO   = 0.20    # targetWpm 대비 ±20% 초과 → 0점 접근
+
+# §7 기반 FAST/SLOW 기본 임계값 (targetWpm 없을 때 fallback)
+FAST_WPM_THRESHOLD = WPM_DEFAULT_MAX   # 180
+SLOW_WPM_THRESHOLD = WPM_DEFAULT_MIN   # 100
+
+# Pause 점수 상수
+PAUSE_PENALTY_PER_SEC = 3.0  # 긴 휴지 1초 = 3점 감점
+PAUSE_MAX_PENALTY     = 20.0 # 최대 감점 한도
 
 def analyze_voice_features(file_path, stt_text=None, gender=None, max_duration=None):
     """오디오 파일에서 정량적 특징 추출 (Librosa 사용)
@@ -272,18 +290,30 @@ def group_words_by_sentence(script_words):
         sentence["words"].append(word)
     return [sentence_map[key] for key in sorted(sentence_map.keys())]
 
-def resolve_sentence_status(wpm, avg_confidence, skipped_word_count, mismatch_word_count):
+def resolve_sentence_status(wpm, avg_confidence, skipped_word_count, mismatch_word_count, target_wpm=None):
     if skipped_word_count > 0 or mismatch_word_count > 0 or avg_confidence < 0.7:
         return "MISMATCH"
     if wpm is None:
         return "MISMATCH"
-    if wpm > FAST_WPM_THRESHOLD:
+    # [STEP 5-C] target_wpm 기반 임계값 — 없으면 §7 fallback
+    fast_threshold = target_wpm * (1.0 + WPM_GUARD_RATIO) if target_wpm and target_wpm > 0 else FAST_WPM_THRESHOLD
+    slow_threshold = target_wpm * (1.0 - WPM_GUARD_RATIO) if target_wpm and target_wpm > 0 else SLOW_WPM_THRESHOLD
+    if wpm > fast_threshold:
         return "FAST"
-    if wpm < SLOW_WPM_THRESHOLD:
+    if wpm < slow_threshold:
         return "SLOW"
     return "NORMAL"
 
-def build_sentence_results(script_words, word_results, features):
+def build_sentence_results(script_words, word_results, features, target_metrics=None):
+    """문장별 분석 결과를 생성합니다.
+
+    Args:
+        script_words: 대본 단어 목록
+        word_results: 단어 정렬 결과
+        features: analyze_voice_features() 반환값 (전체 피처)
+        target_metrics: [STEP 4-C] STEP 3 목표치 dict (targetWpm/targetPitch/targetIntensity/targetZcr/targetPauseRatio).
+                        현재는 수신만 하고, STEP 5에서 규칙 기반 점수 계산에 실제 사용됩니다.
+    """
     if not script_words or not word_results:
         return []
 
@@ -302,6 +332,8 @@ def build_sentence_results(script_words, word_results, features):
         avg_confidence = calculate_average_confidence(related_results)
         skipped_word_count = sum(1 for r in related_results if r["skipped"])
         mismatch_word_count = sum(1 for r in related_results if r.get("status") == "MISMATCH" and not r["skipped"])
+        # [STEP 5-C] target_wpm 추출 — STEP 4에서 전달된 목표치 사용
+        target_wpm = target_metrics.get("targetWpm") if target_metrics else None
         score = calculate_sentence_score(
             word_count=len(words),
             avg_confidence=avg_confidence,
@@ -309,6 +341,7 @@ def build_sentence_results(script_words, word_results, features):
             mismatch_word_count=mismatch_word_count,
             wpm=wpm,
             pause_duration_ms=pause_duration_ms,
+            target_wpm=target_wpm,
         )
 
         sentence_results.append({
@@ -324,7 +357,7 @@ def build_sentence_results(script_words, word_results, features):
             "avgPitch": features.get("avgPitch", 0.0),
             "avgIntensity": features.get("avgIntensity", 0.0),
             "score": round(float(score), 2),
-            "status": resolve_sentence_status(wpm, avg_confidence, skipped_word_count, mismatch_word_count)
+            "status": resolve_sentence_status(wpm, avg_confidence, skipped_word_count, mismatch_word_count, target_wpm)
         })
     return sentence_results
 
@@ -369,23 +402,40 @@ def calculate_average_confidence(word_results):
 
     return sum(float(r.get("confidence") or 0.0) for r in word_results) / len(word_results)
 
-def calculate_sentence_score(word_count, avg_confidence, skipped_word_count, mismatch_word_count, wpm, pause_duration_ms):
+def calculate_sentence_score(word_count, avg_confidence, skipped_word_count, mismatch_word_count, wpm, pause_duration_ms, target_wpm=None):
+    """[STEP 5-B] 규칙 기반 문장 점수 계산 (총 100점)
+
+    - 발음 정확도 50점: avg_confidence(신뢰도) - skipped/mismatch 비율 감점
+    - WPM 속도   30점: targetWpm(§3 목표치) 대비 편차율 → §7 임계값으로 선형 감점
+    - Pause 여유 20점: 긴 휴지 1초당 PAUSE_PENALTY_PER_SEC 감점, 최대 PAUSE_MAX_PENALTY
+    """
     if word_count <= 0:
         return 0.0
 
     skipped_ratio = skipped_word_count / word_count
     mismatch_ratio = mismatch_word_count / word_count
-    speed_penalty = min(abs(wpm - TARGET_WPM) * 0.08, 18) if wpm is not None else 18
-    pause_penalty = min((pause_duration_ms or 0) / 1000 * 4, 12)
 
-    score = (
-        avg_confidence * 100
-        - skipped_ratio * 50
-        - mismatch_ratio * 35
-        - speed_penalty
-        - pause_penalty
-    )
-    return clamp(score, 0, 100)
+    # 발음 정확도 (50점)
+    pronunciation_score = clamp(avg_confidence * 50 - skipped_ratio * 25 - mismatch_ratio * 25, 0.0, 50.0)
+
+    # WPM 점수 (30점) — target_wpm 기준, 없으면 §7 중앙값(140) fallback
+    effective_target = target_wpm if target_wpm and target_wpm > 0 else WPM_DEFAULT_MID
+    if wpm is not None:
+        deviation_ratio = abs(wpm - effective_target) / effective_target
+        if deviation_ratio <= WPM_OK_RATIO:
+            wpm_score = 30.0
+        elif deviation_ratio >= WPM_GUARD_RATIO:
+            wpm_score = 0.0
+        else:
+            wpm_score = 30.0 * (1.0 - (deviation_ratio - WPM_OK_RATIO) / (WPM_GUARD_RATIO - WPM_OK_RATIO))
+    else:
+        wpm_score = 0.0
+
+    # Pause 점수 (20점) — 긴 휴지 초당 감점
+    pause_penalty = min(PAUSE_PENALTY_PER_SEC * ((pause_duration_ms or 0) / 1000), PAUSE_MAX_PENALTY)
+    pause_score = clamp(20.0 - pause_penalty, 0.0, 20.0)
+
+    return clamp(pronunciation_score + wpm_score + pause_score, 0.0, 100.0)
 
 def build_issue_results(sentence_results):
     candidates = []

@@ -75,6 +75,8 @@ public class AiAnalysisServiceImpl implements AiAnalysisService {
         body.put("speechInformation", record.getSpeechInformation().toString());
         SpeechStyle speechStyle = record.getSpeechStyle();
         body.put("styleType", speechStyle != null ? speechStyle.getStyleType() : null); // 스타일 정보
+        // [STEP 4-B] gender 전달 — STEP 1에서 AnalyzeRequest schema에 추가했으나 Java에서 미전달이었던 항목 복구
+        body.put("gender", record.getUser().getGender() != null ? record.getUser().getGender().name() : null);
         body.put("targetMetrics", buildTargetMetricsPayload(record));
 
         // 파이썬 서버의 /analyze 엔드포인트 호출

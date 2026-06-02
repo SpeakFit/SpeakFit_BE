@@ -2,6 +2,9 @@ import json
 from app.core.config import model
 from app.schemas.models import AnalyzeRequest
 
+# [STEP 5-E] goalSimilarityScore: Gemini 생성 제거 → 규칙 기반 값으로 주입
+# [리뷰] symbolFeedback: Gemini 생성 제거 → generate_symbol_feedback() 규칙 값으로 대체
+#        _normalize_feedback_payload가 clip 처리하도록 SUMMARY_FIELDS에 유지
 SUMMARY_FIELDS = {"wpmSummary", "energySummary", "goalSummary", "symbolFeedback"}
 FEEDBACK_FIELDS = {"wpmFeedback", "energyFeedback", "pauseFeedback", "goalFeedback"}
 
@@ -67,17 +70,55 @@ def _fallback_script_response(field_name, response_text=None):
 
     return {field_name: fallback_text}
 
-def generate_ai_feedback(features, req: AnalyzeRequest):
-    """Gemini를 사용한 심층 피드백 생성"""
+def generate_symbol_feedback(features: dict) -> str:
+    """[STEP 5 리뷰] 낭독 기호 준수 여부를 오디오 없이 추정 가능한 규칙으로 판정.
+
+    오디오만으로 '기호를 얼마나 읽었는지' 직접 판단은 불가능하므로,
+    대신 쉼 비율(pauseRatio)을 §7 기준과 비교해 기호 활용도를 간접 추정.
+    - pauseRatio > 25%: 쉼이 과도함 → 기호 과잉 적용 가능성
+    - pauseRatio < 8%:  쉼이 부족함 → 기호 무시 가능성
+    - 그 외:           적절한 범위로 판단
+    """
+    pause_pct = (features.get("pauseRatio") or 0.0) * 100.0
+    if pause_pct > 25.0:
+        return "쉼 과다"
+    if pause_pct < 8.0:
+        return "쉼 부족"
+    return "쉼 적절"
+
+
+def generate_ai_feedback(features, req: AnalyzeRequest, goal_similarity_score: float = 0.0):
+    """Gemini를 사용한 심층 피드백 생성.
+
+    [STEP 5-E] 변경 사항:
+    - goalSimilarityScore: Gemini 환각 제거 → 규칙 기반 점수(endpoints.py)를 주입해 그대로 반환
+    - symbolFeedback: 오디오 없는 낭독 기호 판정 불가 → 프롬프트에서 제거
+    - 규칙 평가 결과를 [규칙 평가 결과] 섹션으로 주입해 Gemini가 자연어 설명에 활용하도록 유도
+    """
     style_type = req.styleType or "미선택"
     marked_content = req.markedContent or req.content or ""
+    tm = req.targetMetrics
+
+    symbol_feedback = generate_symbol_feedback(features)
     if not model:
         return {
             "aiSummary": "훌륭한 발표였습니다!", "wpmSummary": "적절한 속도", "wpmFeedback": "좋습니다.",
             "energySummary": "강함", "energyFeedback": "전달력 우수", "pauseFeedback": "적절",
-            "symbolFeedback": "잘 지킴", "goalSimilarityScore": 85.0,
+            "symbolFeedback": symbol_feedback,
+            "goalSimilarityScore": goal_similarity_score,
             "goalSummary": "목표 근접", "goalFeedback": "계속 연습하세요."
         }
+
+    # 규칙 평가 컨텍스트 (Gemini 자연어 설명용)
+    rule_context_lines = []
+    if tm:
+        if tm.targetWpm:
+            rule_context_lines.append(f"- 목표 WPM: {tm.targetWpm:.1f} / 실제: {features['avgWpm']:.1f}")
+        if tm.targetPitch:
+            rule_context_lines.append(f"- 목표 Pitch: {tm.targetPitch:.1f} Hz / 실제: {features['avgPitch']:.1f} Hz")
+        if tm.targetPauseRatio is not None:
+            rule_context_lines.append(f"- 목표 쉼 비율: {tm.targetPauseRatio:.1f}% / 실제: {features['pauseRatio']*100:.1f}%")
+    rule_context = "\n".join(rule_context_lines) if rule_context_lines else "목표치 미설정"
 
     prompt = f"""
     당신은 세계 최고의 스피치 트레이너입니다. 다음 발표 데이터와 상황 정보를 분석하여 상세 피드백을 JSON 형식으로 작성해 주세요.
@@ -86,13 +127,16 @@ def generate_ai_feedback(features, req: AnalyzeRequest):
     - 청중: {req.audienceType} (이해도: {req.audienceUnderstanding})
     - 발표 종류: {req.speechInformation}
     - 목표 스타일: {style_type}
-    - 낭독 기호 대본: {marked_content}
 
     [음성 분석 데이터]
     - 속도: {features['avgWpm']:.1f} WPM
     - 높낮이: {features['avgPitch']:.1f} Hz
     - 쉼 비율: {features['pauseRatio']*100:.1f}%
     - 쉼 횟수: {features['pauseCount']}회
+
+    [규칙 평가 결과] (목표치 대비 실제 측정값 — 피드백 작성 시 참고)
+    {rule_context}
+    - 목표 스타일 유사도: {goal_similarity_score:.1f}점 (100점 만점)
 
     [출력 요구사항]
     반드시 다음 키를 가진 JSON 객체 하나만 출력해 주세요 (Markdown 등 다른 텍스트 금지).
@@ -102,25 +146,32 @@ def generate_ai_feedback(features, req: AnalyzeRequest):
     - energySummary: 성량/에너지에 대한 한 줄 요약
     - energyFeedback: 성량 조절에 대한 조언
     - pauseFeedback: 쉼 구간 활용에 대한 피드백
-    - symbolFeedback: 대본의 낭독 기호(/, *)를 얼마나 잘 지켰는지에 대한 피드백
-    - goalSimilarityScore: 목표 스타일과의 유사도 점수 (0~100 사이의 실수)
     - goalSummary: 목표 스타일 달성 정도 요약
     - goalFeedback: 목표 스타일에 더 가까워지기 위한 핵심 팁
-    
+
     [UI 길이 제한]
     반드시 JSON 객체 하나만 출력하세요. Markdown, 설명문, 코드블록은 금지합니다.
     화면 카드 크기가 작으므로 모든 문장은 매우 짧게 작성하세요.
     aiSummary는 1문장 70자 이내입니다.
-    wpmSummary, energySummary, symbolFeedback, goalSummary는 12자 이내의 짧은 상태 문구입니다.
+    wpmSummary, energySummary, goalSummary는 12자 이내의 짧은 상태 문구입니다.
     wpmFeedback, energyFeedback, pauseFeedback, goalFeedback은 각각 1문장 55자 이내입니다.
     """
     try:
         response = model.generate_content(prompt)
         json_str = response.text.replace("```json", "").replace("```", "").strip()
-        return _normalize_feedback_payload(json.loads(json_str))
+        payload = _normalize_feedback_payload(json.loads(json_str))
+        # [STEP 5-E] goalSimilarityScore: 규칙 산출값으로 덮어씀 (Gemini 환각 차단)
+        payload["goalSimilarityScore"] = goal_similarity_score
+        # [리뷰] symbolFeedback: 규칙 기반으로 항상 채워서 UI 공백 방지
+        payload["symbolFeedback"] = symbol_feedback
+        return payload
     except Exception as e:
         print(f"[Python] Gemini 피드백 생성 실패: {e}")
-        return {"aiSummary": "분석 오류가 발생했습니다.", "goalSimilarityScore": 0.0}
+        return {
+            "aiSummary": "분석 오류가 발생했습니다.",
+            "symbolFeedback": symbol_feedback,
+            "goalSimilarityScore": goal_similarity_score,
+        }
 
 async def generate_script_ai(req):
     prompt = f"""
