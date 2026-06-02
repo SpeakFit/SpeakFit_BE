@@ -17,7 +17,8 @@ from fastapi import APIRouter, Form, HTTPException, WebSocket, WebSocketDisconne
 
 from app.schemas.models import (
     AnalyzeRequest, MarkRequest, GenerateScriptRequest,
-    UpdateScriptRequest, ConvertPptRequest, ScriptWordPayload
+    UpdateScriptRequest, ConvertPptRequest, ScriptWordPayload,
+    FeedbackSummaryRequest,  # [STEP 9]
 )
 from app.services.voice_service import (
     analyze_voice_features, build_aligned_word_results,
@@ -26,7 +27,8 @@ from app.services.voice_service import (
 from app.services.stt_service import transcribe_audio
 from app.services.ai_service import (
     generate_ai_feedback, generate_script_ai,
-    update_script_ai, mark_script_ai
+    update_script_ai, mark_script_ai,
+    generate_feedback_summary,  # [STEP 9]
 )
 from app.services.ppt_service import (
     ensure_within_upload_root, convert_ppt_to_pdf, render_pdf_to_images
@@ -798,6 +800,53 @@ async def practice_websocket(websocket: WebSocket, practice_id: int):
         if stt_session:
             print("[WS] Stopping STT session")
             stt_session.stop()
+
+# ────────────────────────────────────────────────────────────
+# [STEP 9] /feedback/summary — 기간별 종합 피드백 요약
+# Java AiFeedbackService.processFeedbackAsync() → POST /feedback/summary
+# ────────────────────────────────────────────────────────────
+
+@router.post("/feedback/summary")
+async def feedback_summary(req: FeedbackSummaryRequest):
+    """기간별 피드백 종합 요약 엔드포인트.
+
+    Java AiFeedbackService가 집계된 기간 평균 피처를 POST하면,
+    STEP 5 규칙(§6/§7) + STEP 8 RAG Gemini 설명으로 응답.
+
+    응답 형식: Java PythonFeedbackRes 스키마와 1:1 대응
+    - mostSimilarStyle, styleDescription
+    - positiveTitle, positiveDescription
+    - improvementTitle, improvementDescription
+    - guideSummary, guideNextStep
+    - matchingRate (0~100 Integer)
+    """
+    print(
+        f"[Python STEP9] /feedback/summary 수신 — "
+        f"feedbackId={req.feedbackId}, "
+        f"WPM={req.avgWpm:.1f}, Pitch={req.avgPitch:.1f}, "
+        f"dB={req.avgIntensity:.1f}, ZCR={req.avgZcr:.4f}, "
+        f"Pause={req.pauseRatio:.3f}, "
+        f"기간={req.startDate}~{req.endDate}",
+        flush=True
+    )
+    try:
+        result = generate_feedback_summary(
+            avg_wpm=req.avgWpm,
+            avg_pitch=req.avgPitch,
+            avg_intensity=req.avgIntensity,
+            avg_zcr=req.avgZcr,
+            pause_ratio=req.pauseRatio,
+            start_date=req.startDate or "",
+            end_date=req.endDate or "",
+            feedback_id=req.feedbackId,
+        )
+        return result
+    except Exception as e:
+        print(f"[Python STEP9 ERROR] /feedback/summary 처리 실패: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/voice-analysis")
 async def analyze_voice_api(

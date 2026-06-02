@@ -78,17 +78,17 @@
 - **[해결]** 거리 패널티 부호 수정(감산), 재접속 시 confirmed index 인수인계. 실시간/사후 매칭이 동일한 정규화·임계값을 공유하도록 단일 모듈화.
 - **[사용 데이터]** 해당 없음(알고리즘 버그 수정).
 
-### STEP 8. RAG Grounding 도입
+### STEP 8. RAG Grounding 도입 ✅ 완료
 - **[지적 요약]** 현재 Gemini가 100% zero-shot. 데이터 분석 근거가 프롬프트에 주입되지 않아 피드백이 비근거적.
 - **[해결]** §6~§9(앵커 기준·임계값·논문 근거) + 사용자 목표치(STEP 3)를 컨텍스트로 주입하는 RAG. Gemini는 JSON mode 사용(`.replace("```json","")` 정규식 제거), `_clip_text` 12/55자 절단 완화.
 - **[사용 데이터]** §6 Gold Standard, §7 임계값 + 학술 근거(§9), §8 청중 매트릭스.
 
-### STEP 9. /feedback/summary 엔드포인트 배선
+### STEP 9. /feedback/summary 엔드포인트 배선 ✅ 완료
 - **[지적 요약]** Java `AiFeedbackService`가 `/feedback/summary`로 POST하지만 Python 서버에 해당 엔드포인트가 없어 항상 FAILED.
 - **[해결]** Python `endpoints.py`에 `/feedback/summary` 구현(STEP 5 규칙 결과 + STEP 8 RAG 설명 반환). Java `validateResponse` 스키마와 응답 형식 정합.
 - **[사용 데이터]** STEP 5/8 산출물.
 
-### STEP 10. 검증 (Verification)
+### STEP 10. 검증 (Verification) ✅ 완료
 - **[지적 요약]** 단위/지표 변경이 데이터 정합성을 깨지 않는지 확인 필요.
 - **[해결]**
   1. **정합성 테스트**: 자유대화 Baseline × 보정배율 ≈ 군집 중심점 (예: 261.7×0.40=104.7≈104.0) 자동 검증.

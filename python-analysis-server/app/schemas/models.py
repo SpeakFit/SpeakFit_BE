@@ -61,3 +61,15 @@ class UpdateScriptRequest(BaseModel):
 class ConvertPptRequest(BaseModel):
     pptPath: str
     outputDir: str
+
+# [STEP 9] /feedback/summary 엔드포인트 전용 요청 모델
+# Java AiFeedbackService.PythonFeedbackReq 필드와 1:1 대응
+class FeedbackSummaryRequest(BaseModel):
+    feedbackId: Optional[int] = None          # 로그/추적용
+    avgWpm: float = 0.0
+    avgPitch: float = 0.0
+    avgIntensity: float = 0.0
+    avgZcr: float = 0.0
+    pauseRatio: float = 0.0                   # 0.0~1.0 비율
+    startDate: Optional[str] = None           # "YYYY-MM-DD"
+    endDate: Optional[str] = None             # "YYYY-MM-DD"

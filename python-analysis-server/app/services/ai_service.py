@@ -1,6 +1,8 @@
 import json
 from app.core.config import model
 from app.schemas.models import AnalyzeRequest
+# [STEP 8] RAG Grounding 컨텍스트 모듈
+from app.services.rag_context import build_rag_context
 
 # [STEP 5-E] goalSimilarityScore: Gemini 생성 제거 → 규칙 기반 값으로 주입
 # [리뷰] symbolFeedback: Gemini 생성 제거 → generate_symbol_feedback() 규칙 값으로 대체
@@ -88,18 +90,17 @@ def generate_symbol_feedback(features: dict) -> str:
 
 
 def generate_ai_feedback(features, req: AnalyzeRequest, goal_similarity_score: float = 0.0):
-    """Gemini를 사용한 심층 피드백 생성.
+    """[STEP 8] RAG Grounding + Gemini JSON mode 기반 심층 피드백 생성.
 
-    [STEP 5-E] 변경 사항:
-    - goalSimilarityScore: Gemini 환각 제거 → 규칙 기반 점수(endpoints.py)를 주입해 그대로 반환
-    - symbolFeedback: 오디오 없는 낭독 기호 판정 불가 → 프롬프트에서 제거
-    - 규칙 평가 결과를 [규칙 평가 결과] 섹션으로 주입해 Gemini가 자연어 설명에 활용하도록 유도
+    변경 사항 (STEP 8):
+    - RAG 컨텍스트 주입: §6 Gold Standard, §7 임계값+학술근거, §8 청중 매트릭스
+      (SpeakFit_Analysis README 기반 — 논문 4종 근거 포함)
+    - Gemini JSON mode: response_mime_type="application/json" → 마크다운 코드블록 제거 불필요
+    - goalSimilarityScore: 규칙 산출값 주입 (환각 차단 유지)
+    - symbolFeedback: 규칙 기반 값 주입 (유지)
     """
-    style_type = req.styleType or "미선택"
-    marked_content = req.markedContent or req.content or ""
-    tm = req.targetMetrics
-
     symbol_feedback = generate_symbol_feedback(features)
+
     if not model:
         return {
             "aiSummary": "훌륭한 발표였습니다!", "wpmSummary": "적절한 속도", "wpmFeedback": "좋습니다.",
@@ -109,69 +110,251 @@ def generate_ai_feedback(features, req: AnalyzeRequest, goal_similarity_score: f
             "goalSummary": "목표 근접", "goalFeedback": "계속 연습하세요."
         }
 
-    # 규칙 평가 컨텍스트 (Gemini 자연어 설명용)
-    rule_context_lines = []
-    if tm:
-        if tm.targetWpm:
-            rule_context_lines.append(f"- 목표 WPM: {tm.targetWpm:.1f} / 실제: {features['avgWpm']:.1f}")
-        if tm.targetPitch:
-            rule_context_lines.append(f"- 목표 Pitch: {tm.targetPitch:.1f} Hz / 실제: {features['avgPitch']:.1f} Hz")
-        if tm.targetPauseRatio is not None:
-            rule_context_lines.append(f"- 목표 쉼 비율: {tm.targetPauseRatio:.1f}% / 실제: {features['pauseRatio']*100:.1f}%")
-    rule_context = "\n".join(rule_context_lines) if rule_context_lines else "목표치 미설정"
+    # [STEP 8] RAG 컨텍스트 빌드 (§6/§7/§8/§9 + 현재 세션 측정값)
+    rag_context = build_rag_context(features, req, goal_similarity_score)
 
     prompt = f"""
-    당신은 세계 최고의 스피치 트레이너입니다. 다음 발표 데이터와 상황 정보를 분석하여 상세 피드백을 JSON 형식으로 작성해 주세요.
+당신은 SpeakFit 스피치 코칭 AI입니다.
+아래 [SpeakFit 알고리즘 근거 데이터]는 실제 음성 데이터 분석과 학술 연구를 기반으로 수립된 정량적 기준입니다.
+반드시 이 데이터를 참조하여 피드백을 작성하고, 수치 근거 없는 추상적 평가는 하지 마세요.
 
-    [발표 상황 정보]
-    - 청중: {req.audienceType} (이해도: {req.audienceUnderstanding})
-    - 발표 종류: {req.speechInformation}
-    - 목표 스타일: {style_type}
+==================================================
+[SpeakFit 알고리즘 근거 데이터]
+{rag_context}
+==================================================
 
-    [음성 분석 데이터]
-    - 속도: {features['avgWpm']:.1f} WPM
-    - 높낮이: {features['avgPitch']:.1f} Hz
-    - 쉼 비율: {features['pauseRatio']*100:.1f}%
-    - 쉼 횟수: {features['pauseCount']}회
+[출력 요구사항]
+다음 키를 가진 JSON 객체 하나를 출력하세요.
+- aiSummary: 규칙 평가 결과(§7 임계값 판정)를 반영한 따뜻한 총평. 70자 이내 1문장.
+- wpmSummary: 말하기 속도 상태 한 줄. 12자 이내.
+- wpmFeedback: §7 WPM 임계값과 실측값 차이를 근거로 한 구체적 개선 조언. 55자 이내 1문장.
+- energySummary: 성량 상태 한 줄. 12자 이내.
+- energyFeedback: §6 Gold Standard(63.72 dB) 대비 실측 dB를 근거로 한 조언. 55자 이내 1문장.
+- pauseFeedback: §7 Pause(8~25%) 임계값과 Obama 연설 근거를 반영한 쉼 피드백. 55자 이내 1문장.
+- goalSummary: 목표 스타일 달성도 요약. 12자 이내.
+- goalFeedback: 목표 스타일에 더 가까워지기 위한 핵심 팁. 55자 이내 1문장.
 
-    [규칙 평가 결과] (목표치 대비 실제 측정값 — 피드백 작성 시 참고)
-    {rule_context}
-    - 목표 스타일 유사도: {goal_similarity_score:.1f}점 (100점 만점)
+[제약]
+- JSON 객체 하나만 출력. Markdown, 설명문, 코드블록 금지.
+- 모든 피드백은 위 [SpeakFit 알고리즘 근거 데이터]의 수치를 직접 언급하거나 참조하여 작성.
+- UI 카드 크기 제한: aiSummary 70자, Summary류 12자, Feedback류 55자.
+"""
 
-    [출력 요구사항]
-    반드시 다음 키를 가진 JSON 객체 하나만 출력해 주세요 (Markdown 등 다른 텍스트 금지).
-    - aiSummary: 전체적인 따뜻한 총평 (2~3문장)
-    - wpmSummary: 말하기 속도에 대한 한 줄 요약
-    - wpmFeedback: 속도 개선을 위한 구체적 조언
-    - energySummary: 성량/에너지에 대한 한 줄 요약
-    - energyFeedback: 성량 조절에 대한 조언
-    - pauseFeedback: 쉼 구간 활용에 대한 피드백
-    - goalSummary: 목표 스타일 달성 정도 요약
-    - goalFeedback: 목표 스타일에 더 가까워지기 위한 핵심 팁
+    # [STEP 8 리뷰] Response Schema — 필드명 고정으로 Java DTO 직렬화 오류 방지
+    _RESPONSE_SCHEMA = {
+        "type": "OBJECT",
+        "properties": {
+            "aiSummary":      {"type": "STRING"},
+            "wpmSummary":     {"type": "STRING"},
+            "wpmFeedback":    {"type": "STRING"},
+            "energySummary":  {"type": "STRING"},
+            "energyFeedback": {"type": "STRING"},
+            "pauseFeedback":  {"type": "STRING"},
+            "goalSummary":    {"type": "STRING"},
+            "goalFeedback":   {"type": "STRING"},
+        },
+        "required": [
+            "aiSummary", "wpmSummary", "wpmFeedback",
+            "energySummary", "energyFeedback",
+            "pauseFeedback", "goalSummary", "goalFeedback",
+        ],
+    }
 
-    [UI 길이 제한]
-    반드시 JSON 객체 하나만 출력하세요. Markdown, 설명문, 코드블록은 금지합니다.
-    화면 카드 크기가 작으므로 모든 문장은 매우 짧게 작성하세요.
-    aiSummary는 1문장 70자 이내입니다.
-    wpmSummary, energySummary, goalSummary는 12자 이내의 짧은 상태 문구입니다.
-    wpmFeedback, energyFeedback, pauseFeedback, goalFeedback은 각각 1문장 55자 이내입니다.
-    """
     try:
-        response = model.generate_content(prompt)
-        json_str = response.text.replace("```json", "").replace("```", "").strip()
-        payload = _normalize_feedback_payload(json.loads(json_str))
-        # [STEP 5-E] goalSimilarityScore: 규칙 산출값으로 덮어씀 (Gemini 환각 차단)
+        # [STEP 8] Gemini JSON mode + Response Schema
+        response = model.generate_content(
+            prompt,
+            generation_config={
+                "response_mime_type": "application/json",
+                "response_schema": _RESPONSE_SCHEMA,
+            }
+        )
+        payload = _normalize_feedback_payload(json.loads(response.text))
+        # goalSimilarityScore / symbolFeedback: 규칙 산출값으로 덮어씀 (환각 차단)
         payload["goalSimilarityScore"] = goal_similarity_score
-        # [리뷰] symbolFeedback: 규칙 기반으로 항상 채워서 UI 공백 방지
         payload["symbolFeedback"] = symbol_feedback
+        print(f"[Python STEP8] RAG 피드백 생성 완료 — goalSimilarity={goal_similarity_score}", flush=True)
         return payload
     except Exception as e:
-        print(f"[Python] Gemini 피드백 생성 실패: {e}")
+        print(f"[Python] Gemini RAG 피드백 생성 실패: {e}")
         return {
             "aiSummary": "분석 오류가 발생했습니다.",
             "symbolFeedback": symbol_feedback,
             "goalSimilarityScore": goal_similarity_score,
         }
+
+# ────────────────────────────────────────────────────────────
+# [STEP 9] /feedback/summary — 기간별 피드백 요약 생성
+# ────────────────────────────────────────────────────────────
+
+# §3 스타일별 전체-지역 평균 군집 중심점 (40행 → 스타일 4종 평균)
+_STYLE_CENTROIDS = {
+    "열정적인":    {"wpm": 103.3, "pitch": 223.0},
+    "지적인":      {"wpm":  99.9, "pitch": 171.0},
+    "신중한":      {"wpm":  83.2, "pitch": 173.4},
+    "전달력 있는": {"wpm":  82.2, "pitch": 202.0},
+}
+
+# WPM/Pitch 정규화 폭 (STEP 3-B와 동일 기준 — NORM_WPM=40, NORM_PITCH=200)
+_NORM_WPM   = 40.0
+_NORM_PITCH = 200.0
+
+
+def find_most_similar_style(avg_wpm: float, avg_pitch: float) -> str:
+    """§3 군집 중심점과의 정규화 유클리드 거리로 가장 유사한 스타일 반환."""
+    best_style = "전달력 있는"
+    best_dist = float("inf")
+    for style, center in _STYLE_CENTROIDS.items():
+        d_wpm   = (avg_wpm   - center["wpm"])   / _NORM_WPM
+        d_pitch = (avg_pitch - center["pitch"]) / _NORM_PITCH
+        dist = (d_wpm ** 2 + d_pitch ** 2) ** 0.5
+        if dist < best_dist:
+            best_dist = dist
+            best_style = style
+    return best_style
+
+
+def calculate_matching_rate(avg_wpm: float, avg_intensity: float, avg_zcr: float, pause_ratio: float) -> int:
+    """§6/§7 Gold Standard 대비 일치율 → 0~100 정수 반환.
+
+    WPM 40% | dB 30% | Pause 20% | ZCR 10%
+    각 지표를 §7 가드레일 폭으로 정규화.
+    """
+    def norm_score(actual, target, guard):
+        if target == 0 or guard == 0:
+            return 0.0
+        deviation = abs(actual - target) / guard
+        return max(0.0, 1.0 - deviation) * 100.0
+
+    # §7 목표 (Gold Standard 절대치)
+    WPM_TARGET, WPM_GUARD   = 145.0, 45.0   # 100~180 중심 ≈ 145, 폭 45
+    DB_TARGET,  DB_GUARD    = 63.72, 6.0    # §6 Gold Standard
+    PAUSE_TARGET_PCT        = 27.15          # §6 Gold Standard
+    PAUSE_GUARD             = 17.0          # §7 8~25 폭
+    ZCR_TARGET, ZCR_GUARD   = 0.1108, 0.07  # §6 Gold Standard (0.04~0.25 폭의 절반)
+
+    pause_pct = pause_ratio * 100.0
+
+    s_wpm   = norm_score(avg_wpm,       WPM_TARGET,   WPM_GUARD)
+    s_db    = norm_score(avg_intensity, DB_TARGET,    DB_GUARD)
+    s_pause = norm_score(pause_pct,     PAUSE_TARGET_PCT, PAUSE_GUARD)
+    s_zcr   = norm_score(avg_zcr,       ZCR_TARGET,   ZCR_GUARD)
+
+    raw = s_wpm * 0.40 + s_db * 0.30 + s_pause * 0.20 + s_zcr * 0.10
+    return int(round(max(0.0, min(100.0, raw))))
+
+
+def generate_feedback_summary(
+    avg_wpm: float, avg_pitch: float, avg_intensity: float,
+    avg_zcr: float, pause_ratio: float,
+    start_date: str, end_date: str, feedback_id=None
+) -> dict:
+    """[STEP 9] 기간별 피드백 요약 — 규칙 판정 + Gemini RAG 설명 생성.
+
+    Java PythonFeedbackRes 스키마 8개 필드 + matchingRate 반환.
+    """
+    most_similar_style = find_most_similar_style(avg_wpm, avg_pitch)
+    matching_rate = calculate_matching_rate(avg_wpm, avg_intensity, avg_zcr, pause_ratio)
+    pause_pct = pause_ratio * 100.0
+
+    # §7 이탈 판정 (Gold Standard 기준)
+    wpm_flag   = "이탈(과저속)" if avg_wpm < 100 else ("이탈(과속)" if avg_wpm > 180 else "정상")
+    db_flag    = "이탈" if abs(avg_intensity - 63.72) > 6 else "정상"
+    pause_flag = "이탈(부족)" if pause_pct < 8 else ("이탈(과다)" if pause_pct > 25 else "정상")
+    zcr_flag   = "이탈" if avg_zcr < 0.04 or avg_zcr > 0.25 else "정상"
+
+    print(
+        f"[Python STEP9] feedbackId={feedback_id} | "
+        f"mostSimilarStyle={most_similar_style} | matchingRate={matching_rate} | "
+        f"WPM={avg_wpm:.1f}({wpm_flag}), dB={avg_intensity:.1f}({db_flag}), "
+        f"Pause={pause_pct:.1f}%({pause_flag}), ZCR={avg_zcr:.4f}({zcr_flag})",
+        flush=True
+    )
+
+    if not model:
+        return _fallback_feedback_summary(most_similar_style, matching_rate)
+
+    prompt = f"""
+당신은 SpeakFit 스피치 코칭 AI입니다.
+아래는 {start_date} ~ {end_date} 기간 동안의 발표 연습 통합 분석 결과입니다.
+
+[기간별 평균 측정값]
+- 평균 WPM: {avg_wpm:.1f} (§7 판정: {wpm_flag} / 정상 100~180)
+- 평균 Pitch: {avg_pitch:.1f} Hz
+- 평균 dB: {avg_intensity:.1f} dBFS (§6 Gold Standard 63.72 dB, 판정: {db_flag})
+- 평균 Pause: {pause_pct:.1f}% (§7 판정: {pause_flag} / 정상 8~25%)
+- ZCR: {avg_zcr:.4f} (§6 Gold Standard 0.1108, 판정: {zcr_flag})
+- 가장 유사한 발표 스타일: {most_similar_style}
+- 기간 종합 점수(matchingRate): {matching_rate}/100
+
+[§6 Gold Standard 참고]
+뉴스 앵커 290,704개 문장 분석 기준: dB 63.72 | ZCR 0.1108 | Pause 27.15%
+
+[출력 요구사항]
+다음 키를 가진 JSON 객체 하나를 출력하세요.
+- styleDescription: '{most_similar_style}' 스타일의 특징 설명 + 이 기간 발표에서 나타난 해당 스타일 경향. 30자 이내.
+- positiveTitle: 이 기간에서 가장 잘한 발화 지표 1가지 제목. 10자 이내.
+- positiveDescription: positiveTitle 근거 — §6/§7 수치를 직접 인용한 구체적 칭찬. 50자 이내.
+- improvementTitle: 가장 우선 개선이 필요한 지표 1가지 제목. 10자 이내.
+- improvementDescription: improvementTitle 근거 — §7 임계값 대비 실측값 차이를 명시한 개선 조언. 50자 이내.
+- guideSummary: 다음 연습 단계 한 줄 요약. 20자 이내.
+- guideNextStep: 다음 연습에서 집중할 구체적 행동 지침. 50자 이내.
+
+[제약]
+- JSON 객체 하나만 출력. Markdown, 코드블록 금지.
+- 모든 피드백은 위 수치를 직접 참조.
+"""
+
+    _SUMMARY_SCHEMA = {
+        "type": "OBJECT",
+        "properties": {
+            "styleDescription":      {"type": "STRING"},
+            "positiveTitle":         {"type": "STRING"},
+            "positiveDescription":   {"type": "STRING"},
+            "improvementTitle":      {"type": "STRING"},
+            "improvementDescription":{"type": "STRING"},
+            "guideSummary":          {"type": "STRING"},
+            "guideNextStep":         {"type": "STRING"},
+        },
+        "required": [
+            "styleDescription", "positiveTitle", "positiveDescription",
+            "improvementTitle", "improvementDescription",
+            "guideSummary", "guideNextStep",
+        ],
+    }
+
+    try:
+        response = model.generate_content(
+            prompt,
+            generation_config={
+                "response_mime_type": "application/json",
+                "response_schema": _SUMMARY_SCHEMA,
+            }
+        )
+        payload = json.loads(response.text)
+        payload["mostSimilarStyle"] = most_similar_style
+        payload["matchingRate"]     = matching_rate
+        print(f"[Python STEP9] 피드백 요약 생성 완료 — matchingRate={matching_rate}", flush=True)
+        return payload
+    except Exception as e:
+        print(f"[Python STEP9] Gemini 피드백 요약 생성 실패: {e}")
+        return _fallback_feedback_summary(most_similar_style, matching_rate)
+
+
+def _fallback_feedback_summary(most_similar_style: str, matching_rate: int) -> dict:
+    """Gemini 실패 시 규칙 기반 최소 응답."""
+    return {
+        "mostSimilarStyle":       most_similar_style,
+        "styleDescription":       f"{most_similar_style} 발표 스타일",
+        "positiveTitle":          "꾸준한 연습",
+        "positiveDescription":    "지속적인 발표 연습으로 스피치 역량을 향상시키고 있습니다.",
+        "improvementTitle":       "세부 지표 개선",
+        "improvementDescription": "§7 임계값을 기준으로 WPM·Pause 균형을 맞춰 주세요.",
+        "guideSummary":           "다음 단계 연습 진행",
+        "guideNextStep":          "목표 WPM 범위(100~180)를 유지하며 의도적인 Pause를 연습하세요.",
+        "matchingRate":           matching_rate,
+    }
+
 
 async def generate_script_ai(req):
     prompt = f"""
