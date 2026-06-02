@@ -493,18 +493,32 @@ async def run_analysis(req: AnalyzeRequest):
         raise HTTPException(status_code=404, detail=f"Audio file not found: {audio_path}")
 
     try:
-        # 1. 음성 특징 분석 (Librosa 등 사용)
-        features = analyze_voice_features(audio_path)
+        # 1. 음성 특징 1차 분석 — duration 확보 목적 (WPM은 STT 후 재계산)
+        # [STEP 1] gender 파라미터 전달로 Pitch 성별 필터 적용
+        features = analyze_voice_features(audio_path, gender=req.gender)
         if not features:
             raise HTTPException(status_code=500, detail="Voice feature analysis failed")
 
         # 2. STT 수행 (Gemini 폴백이 적용된 새로운 transcribe_audio 사용)
         duration = features.get("durationSec")
         stt_words = transcribe_audio(audio_path, duration)
-        
+
         if stt_words is None:
             print("[Python WARN] STT process failed. Continuing analysis with skipped word results.")
             stt_words = []
+
+        # [STEP 1] STT 텍스트로 WPM 재계산 (음절/분 — 분석 스크립트 기준)
+        # onset 기반 fallback을 STT 결과로 덮어씀
+        if stt_words and duration and duration > 0:
+            full_stt_text = " ".join(w.get("word", "") for w in stt_words if w.get("word"))
+            syllable_count = len(full_stt_text.replace(" ", ""))
+            if syllable_count > 0:
+                features["avgWpm"] = float(syllable_count / (duration / 60))
+                print(
+                    f"[Python] WPM 재계산 완료 (음절/분): {features['avgWpm']:.1f}"
+                    f" | syllables={syllable_count}, duration={duration:.2f}s",
+                    flush=True
+                )
 
         # 3. 결과 조립
         word_results = build_aligned_word_results(req.scriptWords, stt_words) if stt_words else build_skipped_word_results(req.scriptWords)
@@ -720,8 +734,9 @@ async def analyze_voice_api(voiceFile: UploadFile = File(...)):
             flush=True
         )
 
-        # 2. 기존 음성 분석 함수 호출
-        features = analyze_voice_features(temp_path)
+        # 2. 음성 분석 함수 호출
+        # [STEP 1] 베이스라인 분석은 sr=16000, 10초 로드 — 분석 스크립트(자유대화음성분석.py) 기준
+        features = analyze_voice_features(temp_path, max_duration=10)
 
         if not features:
             print(

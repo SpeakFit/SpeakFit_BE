@@ -22,6 +22,8 @@ class AnalyzeRequest(BaseModel):
     audienceUnderstanding: str
     speechInformation: str
     styleType: Optional[str] = None
+    # [STEP 1] Pitch 성별 필터 적용용 — 'MALE' / 'FEMALE'
+    gender: Optional[str] = None
 
 class MarkRequest(BaseModel):
     content: str

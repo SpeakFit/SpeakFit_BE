@@ -21,13 +21,25 @@ LOW_SCORE_THRESHOLD = 70
 SKIPPED_RATIO_THRESHOLD = 0.15
 MISMATCH_RATIO_THRESHOLD = 0.15
 
-def analyze_voice_features(file_path):
-    """오디오 파일에서 정량적 특징 추출 (Librosa 사용)"""
+def analyze_voice_features(file_path, stt_text=None, gender=None, max_duration=None):
+    """오디오 파일에서 정량적 특징 추출 (Librosa 사용)
+
+    Args:
+        file_path: 오디오 파일 경로
+        stt_text: STT 결과 전체 텍스트 (제공 시 음절/분 방식으로 WPM 계산, 분석 스크립트 기준)
+        gender: 성별 ('MALE' / 'FEMALE'), Pitch 필터 적용에 사용
+        max_duration: 최대 로드 길이(초). 베이스라인 분석 시 10초 제한 적용.
+    """
     try:
         file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
         print(f"[Python] Loading voice file with librosa: path={file_path}, size={file_size} bytes", flush=True)
 
-        y, sr = librosa.load(file_path, sr=None)
+        # [STEP 1] sr=16000 고정 — 분석 스크립트(자유대화음성분석.py) 기준과 통일
+        load_kwargs = {"sr": 16000}
+        if max_duration is not None:
+            load_kwargs["duration"] = max_duration
+
+        y, sr = librosa.load(file_path, **load_kwargs)
         if y.size == 0:
             raise ValueError("Loaded audio is empty")
 
@@ -38,13 +50,42 @@ def analyze_voice_features(file_path):
         )
 
         # 1. 목소리 높낮이 (Pitch)
-        pitches, magnitudes = librosa.piptrack(y=y, sr=sr)
-        pitches = pitches[magnitudes > np.median(magnitudes)]
-        avg_pitch = np.mean(pitches) if len(pitches) > 0 else 0.0
+        # [STEP 1] piptrack mean → librosa.yin median + 성별 필터
+        # 분석 스크립트: median(librosa.yin(y, fmin=65, fmax=450)) + 성별 필터
+        yin_pitches = librosa.yin(y, fmin=65, fmax=450)
+        yin_pitches = yin_pitches[yin_pitches > 0]  # 무성 구간(0Hz) 제거
+
+        gender_upper = gender.upper() if gender else None
+        if gender_upper == "MALE":
+            filtered_pitches = yin_pitches[(yin_pitches >= 70) & (yin_pitches <= 220)]
+        elif gender_upper == "FEMALE":
+            filtered_pitches = yin_pitches[(yin_pitches >= 140) & (yin_pitches <= 380)]
+        else:
+            # gender=None (Java 미전송) 또는 알 수 없는 값 → 전체 유효 범위 fallback
+            # Java 동기화 전까지 이 경로로 동작. 에러 없이 65~450Hz 범위 적용.
+            if gender is not None:
+                print(f"[Python WARN] 알 수 없는 gender 값: '{gender}', 전체 범위(65~450Hz) fallback 적용", flush=True)
+            filtered_pitches = yin_pitches[(yin_pitches >= 65) & (yin_pitches <= 450)]
+
+        avg_pitch = float(np.median(filtered_pitches)) if len(filtered_pitches) > 0 else 0.0
+        pitch_std = float(np.std(filtered_pitches)) if len(filtered_pitches) > 0 else 0.0
+
+        print(
+            f"[Python] Pitch (yin median, gender={gender}): {avg_pitch:.2f} Hz"
+            f" | valid frames={len(filtered_pitches)}",
+            flush=True
+        )
 
         # 2. 성량 (Intensity)
+        # [STEP 1] np.mean(rms)*1000 → dBFS (20*log10(mean_rms))
+        # 마이크 캘리브레이션 없이 절대 SPL 측정 불가 → Baseline 상대값으로 운용
         rms = librosa.feature.rms(y=y)
-        avg_intensity = np.mean(rms) * 1000
+        # [STEP 1 리뷰] 완전 묵음 안전장치: 배열 전체에 최솟값 1e-5 보장
+        # mean_rms + 1e-9만으로는 rms 개별 원소가 0일 때 log(-inf) → std(nan) → JSON 직렬화 실패 가능
+        rms_safe = np.maximum(rms, 1e-5)
+        mean_rms = float(np.mean(rms_safe))
+        avg_intensity = float(20 * np.log10(mean_rms))           # dBFS
+        intensity_std = float(np.std(20 * np.log10(rms_safe.flatten())))
 
         # 3. 쉼 구간 (Pause) 탐지
         intervals = librosa.effects.split(y, top_db=25)
@@ -52,24 +93,33 @@ def analyze_voice_features(file_path):
         non_silent_duration = sum([(e - s) / sr for s, e in intervals])
         pause_ratio = (duration - non_silent_duration) / duration if duration > 0 else 0
 
-        # 4. 발화 속도 (WPM 추정)
-        onsets = librosa.onset.onset_detect(y=y, sr=sr)
-        avg_wpm = (len(onsets) / 2) / (duration / 60) if duration > 0 else 0
+        # 4. 발화 속도 (WPM)
+        # [STEP 1] 음절/분 방식 — 분석 스크립트 기준:
+        #   WPM = len(stt_text.replace(" ", "")) / (duration / 60)
+        # stt_text 없을 경우 onset fallback (베이스라인 STEP 2에서 대체 예정)
+        if stt_text and duration > 0:
+            syllable_count = len(stt_text.replace(" ", ""))
+            avg_wpm = syllable_count / (duration / 60)
+            print(f"[Python] WPM (음절/분): {avg_wpm:.1f} | syllables={syllable_count}, duration={duration:.2f}s", flush=True)
+        else:
+            onsets = librosa.onset.onset_detect(y=y, sr=sr)
+            avg_wpm = (len(onsets) / 2) / (duration / 60) if duration > 0 else 0
+            print(f"[Python] WPM (onset fallback): {avg_wpm:.1f} | onsets={len(onsets)}", flush=True)
 
         # 5. 발음 선명도 (ZCR)
         zcr = librosa.feature.zero_crossing_rate(y)
-        avg_zcr = np.mean(zcr)
+        avg_zcr = float(np.mean(zcr))
 
         return {
             "durationSec": float(duration),
             "avgWpm": float(avg_wpm),
             "avgPitch": float(avg_pitch),
-            "avgIntensity": float(avg_intensity),
+            "avgIntensity": float(avg_intensity),   # dBFS (예: -30.0 ~ -10.0)
             "avgZcr": float(avg_zcr),
             "pauseRatio": float(pause_ratio),
-            "wpmDiff": 10.0,
-            "pitchDiff": float(np.std(pitches)) if len(pitches) > 0 else 0.0,
-            "intensityDiff": float(np.std(rms)) * 1000,
+            "wpmDiff": 0.0,                         # [STEP 1] 하드코딩 10.0 제거 → STEP 3에서 목표치 대비 실제 차이 계산
+            "pitchDiff": pitch_std,
+            "intensityDiff": float(intensity_std),  # dB 단위 표준편차
             "zcrDiff": float(np.std(zcr)),
             "pauseCount": int(pause_count)
         }
