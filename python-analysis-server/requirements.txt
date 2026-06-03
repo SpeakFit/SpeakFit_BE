@@ -10,3 +10,5 @@ python-dotenv
 PyMuPDF
 static-ffmpeg
 boto3
+konlpy
+langsmith

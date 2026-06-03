@@ -65,6 +65,8 @@ public class AiAnalysisTxServiceImpl implements AiAnalysisTxService {
                 data.getPauseRatio(), data.getWpmDiff(), data.getPitchDiff(),
                 data.getIntensityDiff(), data.getZcrDiff(), data.getPauseCount()
         );
+        // [STEP-D] 표시용 음량 필드 저장 — avgIntensity(dBFS) 평가 로직과 분리
+        analysisResult.updateVolumeDisplay(data.getVolumeScore(), data.getVolumeLevel());
         analysisResultRepository.save(analysisResult);
 
         // 2. AI 상세 피드백 저장

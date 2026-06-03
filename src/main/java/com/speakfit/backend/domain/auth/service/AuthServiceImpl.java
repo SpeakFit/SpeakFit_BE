@@ -44,7 +44,15 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public SignUpRes signUp(SignUpReq.Request req) {
 
-        // 1. User 생성
+        // 1. 이메일·닉네임 중복 사전 검사 (DB constraint 파싱 방식 대신 명시적 검사)
+        if (userRepository.existsByEmail(req.getEmail())) {
+            throw new CustomException(AuthErrorCode.DUPLICATE_EMAIL);
+        }
+        if (userRepository.existsByNickname(req.getNickname())) {
+            throw new CustomException(AuthErrorCode.DUPLICATE_NICKNAME);
+        }
+
+        // 2. User 생성
         User user = User.builder()
                 .email(req.getEmail())
                 .password(passwordEncoder.encode(req.getPassword()))
@@ -54,23 +62,24 @@ public class AuthServiceImpl implements AuthService {
                 .dialect(req.getDialect())
                 .build();
 
+        // existsBy 검사 이후 save 사이의 Race Condition 방어:
+        // DB Unique Constraint 위반 시 메시지 파싱 없이, existsBy를 재조회해 정확한 에러 반환
         User savedUser;
         try {
             savedUser = userRepository.save(user);
         } catch (DataIntegrityViolationException e) {
-            String msg = e.getMostSpecificCause().getMessage();
-
-            if (msg.contains("uk_user_email")) {
+            // 동시 요청으로 사전 검사 통과 후 save 시점에 Unique 위반 발생 가능
+            // 메시지 파싱 없이 재조회로 어느 필드인지 판별
+            if (userRepository.existsByEmail(req.getEmail())) {
                 throw new CustomException(AuthErrorCode.DUPLICATE_EMAIL);
             }
-            if (msg.contains("uk_user_nickname")) {
+            if (userRepository.existsByNickname(req.getNickname())) {
                 throw new CustomException(AuthErrorCode.DUPLICATE_NICKNAME);
             }
-
-            throw e; // 예상 못 한 DB 에러는 그대로
+            throw e; // 그 외 예상치 못한 DB 에러는 그대로
         }
 
-        // 2. 약관 동의 처리
+        // 3. 약관 동의 처리
         Map<Long, Boolean> agreedMap =
                 req.getTerms().stream()
                         .collect(Collectors.toMap(
@@ -101,7 +110,7 @@ public class AuthServiceImpl implements AuthService {
 
         userTermRepository.saveAll(userTerms);
 
-        // 3. 응답
+        // 4. 응답
         return SignUpRes.builder()
                 .userId(savedUser.getId())
                 .email(savedUser.getEmail())

@@ -22,11 +22,14 @@ import com.speakfit.backend.domain.user.repository.UserRepository;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.core.task.TaskRejectedException;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.multipart.MultipartFile;
+import reactor.core.publisher.Flux;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,7 +43,6 @@ import java.util.Map;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class ScriptServiceImpl implements ScriptService {
 
@@ -49,10 +51,33 @@ public class ScriptServiceImpl implements ScriptService {
     private final AiAnalysisService aiAnalysisService;
     private final ScriptTxService scriptTxService;
     private final UserRepository userRepository;
+    /** 단기 API 호출용 (PPT 변환 등 일반 요청) */
     private final WebClient webClient;
+    /** [STEP-A] SSE 스트리밍 전용 — responseTimeout 5분 설정 */
+    private final WebClient streamingWebClient;
     private final PptConvertAsyncService pptConvertAsyncService;
 
-    // 발표 대본 추가 기능 구현
+    public ScriptServiceImpl(
+            ScriptRepository scriptRepository,
+            com.speakfit.backend.domain.practice.repository.PracticeRepository practiceRepository,
+            AiAnalysisService aiAnalysisService,
+            ScriptTxService scriptTxService,
+            UserRepository userRepository,
+            @Qualifier("webClient") WebClient webClient,
+            @Qualifier("streamingWebClient") WebClient streamingWebClient,
+            PptConvertAsyncService pptConvertAsyncService) {
+        this.scriptRepository = scriptRepository;
+        this.practiceRepository = practiceRepository;
+        this.aiAnalysisService = aiAnalysisService;
+        this.scriptTxService = scriptTxService;
+        this.userRepository = userRepository;
+        this.webClient = webClient;
+        this.streamingWebClient = streamingWebClient;
+        this.pptConvertAsyncService = pptConvertAsyncService;
+    }
+
+    // [STEP-B] 발표 대본 추가 기능 구현 — 낭독기호 동기 처리로 즉시 응답 보장
+    // Python 로컬 엔진 사용으로 평균 < 50ms이므로 동기 처리가 사용자 경험에 유리함.
     @Override
     public AddScriptRes.Response addScript(AddScriptReq.Request req, Long userId) {
 
@@ -60,18 +85,16 @@ public class ScriptServiceImpl implements ScriptService {
             throw new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND);
         }
 
-        // AI를 통해 낭독 기호 대본 생성
+        // 1. 저장하기 전에 먼저 낭독기호를 생성합니다 (동기 호출, 로컬 엔진 활용)
         String markedContent = aiAnalysisService.generateMarkedContent(req.getContent());
-
-        // AI 호출 실패 시 원본 대본 사용
         if (markedContent == null || markedContent.isBlank()) {
             markedContent = req.getContent();
         }
 
-        // 대본 정보 저장
+        // 2. 처음부터 낭독기호가 포함된 내용으로 DB에 저장합니다
         Script savedScript = scriptTxService.saveScript(req, userId, markedContent);
 
-        // 낭독 기호 대본을 응답 형식으로 변환
+        // 3. 낭독기호가 포함된 결과로 contentList를 구성하여 즉시 반환합니다
         List<AddScriptRes.ContentRes> contentList = parseMarkedContent(markedContent);
 
         return AddScriptRes.Response.builder()
@@ -234,9 +257,14 @@ public class ScriptServiceImpl implements ScriptService {
                 .build();
     }
 
-    // AI 발표 대본 초안 생성 기능 구현
+    // [STEP-A] AI 발표 대본 초안 생성 — Python SSE 파싱 후 Flux<String> 중계
+    // bodyToFlux(ServerSentEvent.class) → Spring의 SSE 디코더가 "data:" 접두어를 제거하고 값만 추출.
+    // 반환 Flux<String>은 Controller의 produces=TEXT_EVENT_STREAM_VALUE가 다시 SSE로 인코딩.
+    // 이중 인코딩(data: data: ...) 방지.
+    // streamingWebClient 사용 — responseTimeout 5분 (긴 대본 생성 대응).
     @Override
-    public AiGenerateScriptRes.Response generateScript(AiGenerateScriptReq.Request req, Long userId) {
+    @SuppressWarnings("unchecked")
+    public Flux<String> generateScript(AiGenerateScriptReq.Request req, Long userId) {
         if (!userRepository.existsById(userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND);
         }
@@ -250,30 +278,22 @@ public class ScriptServiceImpl implements ScriptService {
         body.put("purpose", req.getPurpose());
         body.put("keywords", req.getKeywords());
 
-        try {
-            AiGenerateScriptRes.Response response = webClient.post()
-                    .uri("/scripts/generate")
-                    .bodyValue(body)
-                    .retrieve()
-                    .bodyToMono(AiGenerateScriptRes.Response.class)
-                    .block();
-
-            if (response == null || response.getGeneratedScript() == null || response.getGeneratedScript().isBlank()) {
-                throw new CustomException(ScriptErrorCode.SCRIPT_AI_GENERATE_FAILED);
-            }
-
-            return response;
-        } catch (CustomException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("AI 발표 대본 생성 실패 - userId: {}, topic: {}", userId, req.getTopic(), e);
-            throw new CustomException(ScriptErrorCode.SCRIPT_AI_GENERATE_FAILED);
-        }
+        return streamingWebClient.post()
+                .uri("/scripts/generate")
+                .bodyValue(body)
+                .retrieve()
+                .bodyToFlux(String.class)
+                .map(data -> data.replaceFirst("^data:\\s*", ""))
+                .onErrorResume(e -> {
+                    log.error("AI 발표 대본 생성 스트리밍 실패 - userId: {}", userId, e);
+                    return Flux.just("{\"error\":\"AI 대본 생성 중 오류가 발생했습니다.\"}");
+                });
     }
 
-    // AI 발표 대본 최적화 기능 구현
+    // [STEP-A] AI 발표 대본 최적화 — Python SSE 파싱 후 Flux<String> 중계
     @Override
-    public AiUpdateScriptRes.Response updateScript(AiUpdateScriptReq.Request req, Long userId) {
+    @SuppressWarnings("unchecked")
+    public Flux<String> updateScript(AiUpdateScriptReq.Request req, Long userId) {
         if (!userRepository.existsById(userId)) {
             throw new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND);
         }
@@ -288,25 +308,16 @@ public class ScriptServiceImpl implements ScriptService {
         body.put("purpose", req.getPurpose());
         body.put("keywords", req.getKeywords());
 
-        try {
-            AiUpdateScriptRes.Response response = webClient.post()
-                    .uri("/scripts/update")
-                    .bodyValue(body)
-                    .retrieve()
-                    .bodyToMono(AiUpdateScriptRes.Response.class)
-                    .block();
-
-            if (response == null || response.getOptimizedScript() == null || response.getOptimizedScript().isBlank()) {
-                throw new CustomException(ScriptErrorCode.SCRIPT_AI_UPDATE_FAILED);
-            }
-
-            return response;
-        } catch (CustomException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("AI 발표 대본 최적화 실패 - userId: {}, topic: {}", userId, req.getTopic(), e);
-            throw new CustomException(ScriptErrorCode.SCRIPT_AI_UPDATE_FAILED);
-        }
+        return streamingWebClient.post()
+                .uri("/scripts/update")
+                .bodyValue(body)
+                .retrieve()
+                .bodyToFlux(String.class)
+                .map(data -> data.replaceFirst("^data:\\s*", ""))
+                .onErrorResume(e -> {
+                    log.error("AI 발표 대본 최적화 스트리밍 실패 - userId: {}", userId, e);
+                    return Flux.just("{\"error\":\"AI 대본 최적화 중 오류가 발생했습니다.\"}");
+                });
     }
 
     // PPT 파일 업로드 및 슬라이드 변환 기능 구현

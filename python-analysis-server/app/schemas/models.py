@@ -12,6 +12,15 @@ class ScriptWordPayload(BaseModel):
     startCharIndex: int
     endCharIndex: int
 
+# [STEP 4-A] Java GuideServiceImpl(STEP 3)이 계산한 목표치 수신 모델
+# TargetMetricCalculator.calculate() → buildTargetMetricsPayload() → Python /analyze
+class TargetMetrics(BaseModel):
+    targetWpm: Optional[float] = None        # Baseline × §5 WPM 배율 (§7 guard 적용)
+    targetPitch: Optional[float] = None      # Baseline × §5 Pitch 배율 (§7 guard 적용)
+    targetIntensity: Optional[float] = None  # §6 Gold Standard dB + §8 청중 offset
+    targetZcr: Optional[float] = None        # §6 Gold Standard ZCR
+    targetPauseRatio: Optional[float] = None # §6 Gold Standard Pause + §8 청중 clamp
+
 class AnalyzeRequest(BaseModel):
     practiceId: int
     audioUrl: str
@@ -22,6 +31,10 @@ class AnalyzeRequest(BaseModel):
     audienceUnderstanding: str
     speechInformation: str
     styleType: Optional[str] = None
+    # [STEP 1] Pitch 성별 필터 적용용 — 'MALE' / 'FEMALE'
+    gender: Optional[str] = None
+    # [STEP 4-A] STEP 3 계산 목표치 — 이전에는 Pydantic이 조용히 폐기하던 필드
+    targetMetrics: Optional[TargetMetrics] = None
 
 class MarkRequest(BaseModel):
     content: str
@@ -48,3 +61,15 @@ class UpdateScriptRequest(BaseModel):
 class ConvertPptRequest(BaseModel):
     pptPath: str
     outputDir: str
+
+# [STEP 9] /feedback/summary 엔드포인트 전용 요청 모델
+# Java AiFeedbackService.PythonFeedbackReq 필드와 1:1 대응
+class FeedbackSummaryRequest(BaseModel):
+    feedbackId: Optional[int] = None          # 로그/추적용
+    avgWpm: float = 0.0
+    avgPitch: float = 0.0
+    avgIntensity: float = 0.0
+    avgZcr: float = 0.0
+    pauseRatio: float = 0.0                   # 0.0~1.0 비율
+    startDate: Optional[str] = None           # "YYYY-MM-DD"
+    endDate: Optional[str] = None             # "YYYY-MM-DD"

@@ -11,8 +11,8 @@ import com.speakfit.backend.domain.voice.exception.VoiceException;
 import com.speakfit.backend.domain.voice.exception.VoiceExceptionStatus;
 import com.speakfit.backend.domain.voice.repository.BaselineVoiceRepository;
 import com.speakfit.backend.global.infra.s3.S3Service;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.MediaType;
@@ -34,7 +34,6 @@ import java.time.Duration;
 import java.util.concurrent.TimeoutException;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
 
@@ -44,6 +43,18 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
     private final WebClient pythonWebClient;
     private final UserRepository userRepository;
     private final BaselineVoiceRepository baselineVoiceRepository;
+
+    public VoiceAnalysisServiceImpl(
+            S3Service s3Service,
+            @Qualifier("webClient") WebClient pythonWebClient,
+            UserRepository userRepository,
+            BaselineVoiceRepository baselineVoiceRepository
+    ) {
+        this.s3Service = s3Service;
+        this.pythonWebClient = pythonWebClient;
+        this.userRepository = userRepository;
+        this.baselineVoiceRepository = baselineVoiceRepository;
+    }
 
     @Value("${app.ai.response-timeout-seconds:900}")
     private long analysisTimeoutSeconds;
@@ -101,8 +112,12 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
             File tempFile = tempPath.toFile();
             voiceFile.transferTo(tempFile);
 
+            // [STEP 2-B] gender를 Python /voice-analysis에 전달 (pitch 성별 필터용)
             MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
             body.add("voiceFile", new FileSystemResource(tempFile));
+            if (user.getGender() != null) {
+                body.add("gender", user.getGender().name());
+            }
 
             PythonVoiceAnalysisRes response = pythonWebClient.post()
                     .uri("/voice-analysis")

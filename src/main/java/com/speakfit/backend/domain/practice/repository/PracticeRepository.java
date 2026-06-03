@@ -2,6 +2,7 @@ package com.speakfit.backend.domain.practice.repository;
 
 
 import com.speakfit.backend.domain.practice.entity.PracticeRecord;
+import com.speakfit.backend.domain.script.entity.Script;
 import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.domain.practice.enums.Status;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -32,5 +33,13 @@ public interface PracticeRepository extends JpaRepository<PracticeRecord, Long> 
 
     // 특정 대본에 속한 모든 연습 기록 삭제
     void deleteAllByScriptId(Long scriptId);
+
+    // [STAGE 5] 추이 비교 — 동일 사용자·대본에서 이번 기록 직전의 분석 완료된 연습을 조회
+    Optional<PracticeRecord> findFirstByUserAndScriptAndStatusAndCreatedAtLessThanOrderByCreatedAtDesc(
+            User user,
+            Script script,
+            Status status,
+            LocalDateTime createdAt
+    );
 
 }
