@@ -51,6 +51,23 @@ public class AiAnalysisResult extends BaseEntity {
     @Column(name = "goal_feedback", columnDefinition = "TEXT")
     private String goalFeedback;
 
+    // [STAGE 3] 출력 구조 확장 — 강점/핵심 개선 액션/연습 팁
+    @Column(name = "strengths", columnDefinition = "TEXT")
+    private String strengths;
+
+    @Column(name = "improvements", columnDefinition = "TEXT")
+    private String improvements;
+
+    @Column(name = "practice_tip", columnDefinition = "TEXT")
+    private String practiceTip;
+
+    // [STAGE 4] 내용·구성 피드백
+    @Column(name = "content_summary", length = 255)
+    private String contentSummary;
+
+    @Column(name = "content_feedback", columnDefinition = "TEXT")
+    private String contentFeedback;
+
     // 클래스 내부에 데이터 업데이트 메서드 추가
     public void updateAiData(PythonAnalysisRes data) {
         // null이 아닐 때만 업데이트하여 기존 데이터를 보존합니다.
@@ -64,5 +81,10 @@ public class AiAnalysisResult extends BaseEntity {
         if (data.getGoalSimilarityScore() != null) this.goalSimilarityScore = data.getGoalSimilarityScore();
         if (data.getGoalSummary() != null) this.goalSummary = data.getGoalSummary();
         if (data.getGoalFeedback() != null) this.goalFeedback = data.getGoalFeedback();
+        if (data.getStrengths() != null) this.strengths = data.getStrengths();
+        if (data.getImprovements() != null) this.improvements = data.getImprovements();
+        if (data.getPracticeTip() != null) this.practiceTip = data.getPracticeTip();
+        if (data.getContentSummary() != null) this.contentSummary = data.getContentSummary();
+        if (data.getContentFeedback() != null) this.contentFeedback = data.getContentFeedback();
     }
 }

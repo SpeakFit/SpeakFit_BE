@@ -7,6 +7,7 @@ import com.speakfit.backend.domain.script.dto.req.UpdateScriptReq;
 import com.speakfit.backend.domain.script.dto.res.AddScriptRes;
 import com.speakfit.backend.domain.script.dto.res.AiGenerateScriptRes;
 import com.speakfit.backend.domain.script.dto.res.AiUpdateScriptRes;
+import reactor.core.publisher.Flux;
 import com.speakfit.backend.domain.script.dto.res.DeleteScriptRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptDetailRes;
 import com.speakfit.backend.domain.script.dto.res.GetScriptListRes;
@@ -32,11 +33,11 @@ public interface ScriptService {
     // 발표 대본 수정 메서드 정의
     UpdateScriptRes.Response updateScript(Long scriptId, UpdateScriptReq.Request req, Long userId);
 
-    // AI 발표 대본 초안 생성 메서드 정의
-    AiGenerateScriptRes.Response generateScript(AiGenerateScriptReq.Request req, Long userId);
+    // AI 발표 대본 초안 생성 — [STEP-A] Flux<String> 반환, Controller에서 SSE 인코딩
+    Flux<String> generateScript(AiGenerateScriptReq.Request req, Long userId);
 
-    // AI 발표 대본 최적화 메서드 정의
-    AiUpdateScriptRes.Response updateScript(AiUpdateScriptReq.Request req, Long userId);
+    // AI 발표 대본 최적화 — [STEP-A] Flux<String> 반환, Controller에서 SSE 인코딩
+    Flux<String> updateScript(AiUpdateScriptReq.Request req, Long userId);
 
     // PPT 파일 업로드 및 슬라이드 변환 메서드 정의
     UploadPptRes.Response uploadPpt(Long scriptId, MultipartFile file, Long userId);

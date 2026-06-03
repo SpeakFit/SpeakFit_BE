@@ -19,7 +19,16 @@ import java.util.List;
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
-@Table(name = "practice_record")
+@Table(
+    name = "practice_record",
+    indexes = {
+        // findAllByUserAndStatusAndCreatedAtBetween 쿼리 최적화용 복합 인덱스
+        @jakarta.persistence.Index(
+            name = "idx_practice_record_user_status_created",
+            columnList = "user_id, status, created_at"
+        )
+    }
+)
 public class PracticeRecord extends BaseEntity {
 
     @Id

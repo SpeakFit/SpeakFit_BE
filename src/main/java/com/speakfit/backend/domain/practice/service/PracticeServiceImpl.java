@@ -46,6 +46,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -437,6 +438,9 @@ public class PracticeServiceImpl implements PracticeService {
         // 4. 문장 단위 분석 결과 우선 사용 및 기존 데이터 fallback
         List<GetPracticeReportRes.SentenceRes> sentences = buildReportSentences(record, sentenceResults, details);
 
+        // 4-1. [STAGE 5] 동일 대본 직전 연습 대비 추이 계산
+        GetPracticeReportRes.TrendDetail trend = buildPracticeTrend(record, analysis, aiResult);
+
         // 5. 최종 리포트 DTO 조립 및 반환
         return GetPracticeReportRes.Response.builder()
                 .practiceId(record.getId())
@@ -453,6 +457,11 @@ public class PracticeServiceImpl implements PracticeService {
                         .intensity(new GetPracticeReportRes.StatInfo(analysis.getAvgIntensity(), analysis.getIntensityDiff()))
                         .zcr(new GetPracticeReportRes.StatInfo(analysis.getAvgZcr(), analysis.getZcrDiff()))
                         .pause(new GetPracticeReportRes.PauseInfo(analysis.getPauseRatio(), analysis.getPauseCount()))
+                        // [STEP-D] 표시용 음량 필드 패스스루 — avgIntensity(dBFS) 평가 로직과 분리
+                        .volume(GetPracticeReportRes.VolumeDisplay.builder()
+                                .score(analysis.getVolumeScore())
+                                .level(analysis.getVolumeLevel())
+                                .build())
                         .build())
                 .aiAnalysis(GetPracticeReportRes.AiAnalysisDetail.builder()
                         .aiSummary(aiResult.getAiSummary())
@@ -465,6 +474,11 @@ public class PracticeServiceImpl implements PracticeService {
                         .goalSimilarityScore(aiResult.getGoalSimilarityScore())
                         .goalSummary(aiResult.getGoalSummary())
                         .goalFeedback(aiResult.getGoalFeedback())
+                        .strengths(aiResult.getStrengths())
+                        .improvements(aiResult.getImprovements())
+                        .practiceTip(aiResult.getPracticeTip())
+                        .contentSummary(aiResult.getContentSummary())
+                        .contentFeedback(aiResult.getContentFeedback())
                         .createdAt(aiResult.getCreatedAt())
                         .build())
                 .practiceIssues(issues.stream().map(i -> GetPracticeReportRes.PracticeIssueRes.builder()
@@ -483,6 +497,63 @@ public class PracticeServiceImpl implements PracticeService {
                         .intensity(i.getIntensity())
                         .build()).collect(Collectors.toList()))
                 .sentences(sentences)
+                .trend(trend)
+                .build();
+    }
+
+    // [STAGE 5] 동일 대본 직전 연습 대비 추이 계산 구현
+    private GetPracticeReportRes.TrendDetail buildPracticeTrend(PracticeRecord record,
+                                                               AnalysisResult analysis,
+                                                               AiAnalysisResult aiResult) {
+        Optional<PracticeRecord> previousOpt = practiceRepository
+                .findFirstByUserAndScriptAndStatusAndCreatedAtLessThanOrderByCreatedAtDesc(
+                        record.getUser(), record.getScript(), Status.ANALYZED, record.getCreatedAt());
+
+        if (previousOpt.isEmpty()) {
+            return GetPracticeReportRes.TrendDetail.builder()
+                    .hasPrevious(false)
+                    .build();
+        }
+
+        PracticeRecord previous = previousOpt.get();
+        AnalysisResult prevAnalysis = analysisResultRepository.findByPracticeRecord(previous).orElse(null);
+        AiAnalysisResult prevAi = aiAnalysisResultRepository.findByPracticeRecord(previous).orElse(null);
+
+        // 분석 데이터가 비어 있으면 비교 불가 처리
+        if (prevAnalysis == null && prevAi == null) {
+            return GetPracticeReportRes.TrendDetail.builder()
+                    .hasPrevious(false)
+                    .build();
+        }
+
+        return GetPracticeReportRes.TrendDetail.builder()
+                .hasPrevious(true)
+                .previousPracticeId(previous.getId())
+                .previousCreatedAt(previous.getCreatedAt())
+                .wpm(buildTrendMetric(
+                        analysis != null ? analysis.getAvgWpm() : null,
+                        prevAnalysis != null ? prevAnalysis.getAvgWpm() : null))
+                .goalScore(buildTrendMetric(
+                        aiResult != null ? aiResult.getGoalSimilarityScore() : null,
+                        prevAi != null ? prevAi.getGoalSimilarityScore() : null))
+                .pauseRatio(buildTrendMetric(
+                        analysis != null ? analysis.getPauseRatio() : null,
+                        prevAnalysis != null ? prevAnalysis.getPauseRatio() : null))
+                .volumeScore(buildTrendMetric(
+                        analysis != null && analysis.getVolumeScore() != null
+                                ? analysis.getVolumeScore().doubleValue() : null,
+                        prevAnalysis != null && prevAnalysis.getVolumeScore() != null
+                                ? prevAnalysis.getVolumeScore().doubleValue() : null))
+                .build();
+    }
+
+    // current/previous로 TrendMetric 생성. 한쪽이라도 null이면 delta는 null.
+    private GetPracticeReportRes.TrendMetric buildTrendMetric(Double current, Double previous) {
+        Double delta = (current != null && previous != null) ? (current - previous) : null;
+        return GetPracticeReportRes.TrendMetric.builder()
+                .current(current)
+                .previous(previous)
+                .delta(delta)
                 .build();
     }
 

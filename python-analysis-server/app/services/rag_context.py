@@ -224,9 +224,140 @@ def _build_measurement_summary(features: dict, tm, goal_similarity_score: float,
 
 
 # ────────────────────────────────────────────────────────────
+# [STEP 10] 세션 상세 컨텍스트 — 문장별 결과·이슈·전사 주입
+# 집계 지표만으로는 "일반론" 피드백에 그치므로, 이미 계산된 문장 단위 결과와
+# 우선순위 이슈, 실제 전사 텍스트를 LLM에 함께 제공해 "특정 문장 근거" 피드백을
+# 생성하게 한다. (점수·판정은 코드 산출값 그대로 — LLM은 서술만 담당)
+# ────────────────────────────────────────────────────────────
+
+# 문장 상세는 토큰 절감을 위해 문제 문장 위주로 상한을 둔다.
+_MAX_PROBLEM_SENTENCES = 8
+_MAX_ISSUES = 5
+_MAX_TRANSCRIPT_CHARS = 1200
+
+_SENTENCE_STATUS_LABEL = {
+    "FAST": "빠름",
+    "SLOW": "느림",
+    "MISMATCH": "대본불일치/누락",
+    "NORMAL": "정상",
+}
+
+
+def _summarize_sentence_results(sentence_results) -> str:
+    """문장별 결과 요약 — 문제 문장(FAST/SLOW/MISMATCH) 우선, 정상은 개수만."""
+    if not sentence_results:
+        return ""
+
+    problem = [s for s in sentence_results if s.get("status") in ("FAST", "SLOW", "MISMATCH")]
+    normal_count = sum(1 for s in sentence_results if s.get("status") == "NORMAL")
+    total = len(sentence_results)
+
+    lines = [f"[문장별 분석] 전체 {total}문장 중 정상 {normal_count}문장, 문제 {len(problem)}문장"]
+    for s in problem[:_MAX_PROBLEM_SENTENCES]:
+        idx = s.get("sentenceIndex")
+        status = _SENTENCE_STATUS_LABEL.get(s.get("status"), s.get("status") or "")
+        wpm = s.get("wpm")
+        pause = s.get("pauseDurationMs")
+        skipped = s.get("skippedWordCount") or 0
+        mismatch = s.get("mismatchWordCount") or 0
+        # 사용자 표기는 1-based가 직관적이므로 +1 (FE 표기와 일치 가정)
+        human_idx = (idx + 1) if isinstance(idx, int) else idx
+        detail = []
+        if wpm is not None:
+            detail.append(f"WPM {wpm:.0f}")
+        if pause:
+            detail.append(f"문장내 쉼 {pause}ms")
+        if skipped:
+            detail.append(f"누락 {skipped}단어")
+        if mismatch:
+            detail.append(f"불일치 {mismatch}단어")
+        lines.append(f"- {human_idx}번 문장: {status} ({', '.join(detail)})")
+    if len(problem) > _MAX_PROBLEM_SENTENCES:
+        lines.append(f"- 외 {len(problem) - _MAX_PROBLEM_SENTENCES}개 문제 문장 생략")
+    return "\n".join(lines)
+
+
+def _summarize_issues(issues) -> str:
+    """우선순위 이슈 목록 요약 — 규칙 엔진이 산출한 상위 이슈."""
+    if not issues:
+        return ""
+    lines = ["[우선순위 이슈] 규칙 엔진이 심각도 순으로 선별"]
+    for it in issues[:_MAX_ISSUES]:
+        idx = it.get("sentenceIndex")
+        human_idx = (idx + 1) if isinstance(idx, int) else idx
+        summary = it.get("summary") or ""
+        issue_type = it.get("issueType") or ""
+        where = f"{human_idx}번 문장" if human_idx is not None else "전체"
+        lines.append(f"- {where} · {issue_type}: {summary}")
+    return "\n".join(lines)
+
+
+def _build_transcript_context(transcript: str, script_text: str) -> str:
+    """실제 전사 + (선택) 대본 일부 — 내용·표현 근거 제공."""
+    parts = []
+    if transcript:
+        t = transcript.strip()
+        if len(t) > _MAX_TRANSCRIPT_CHARS:
+            t = t[:_MAX_TRANSCRIPT_CHARS] + " …(이하 생략)"
+        parts.append(f"[실제 발화 전사]\n{t}")
+    return "\n".join(parts)
+
+
+def _summarize_disfluency(disfluency) -> str:
+    """[STAGE 2] 말버릇(필러)/반복어 탐지 결과 요약.
+
+    탐지 결과가 비어 있으면 빈 문자열 반환(섹션 생략).
+    주의: STT는 순수 필러를 자주 누락하므로 수치는 하한선이며,
+    LLM에는 '관찰된 군더더기/반복' 정도로만 활용하도록 안내한다.
+    """
+    if not disfluency:
+        return ""
+
+    filler_count = disfluency.get("fillerCount") or 0
+    breakdown = disfluency.get("fillerBreakdown") or {}
+    repeated = disfluency.get("repeatedSequences") or []
+
+    if filler_count == 0 and not repeated:
+        return ""
+
+    lines = ["[말버릇·반복 관찰] STT 전사 기반(순수 필러는 누락될 수 있어 실제보다 적게 잡힘)"]
+    if filler_count > 0:
+        detail = ", ".join(f"'{w}' {c}회" for w, c in breakdown.items())
+        lines.append(f"- 군더더기 표현 총 {filler_count}회" + (f" ({detail})" if detail else ""))
+    if repeated:
+        rep = ", ".join(f"'{r.get('word')}' {r.get('count')}회 연속" for r in repeated)
+        lines.append(f"- 단어 반복: {rep}")
+    return "\n".join(lines)
+
+
+def build_session_detail_context(sentence_results=None, issues=None, transcript=None,
+                                 script_text=None, disfluency=None) -> str:
+    """[STEP 10] 문장별 결과·이슈·전사를 합친 세션 상세 컨텍스트.
+
+    각 요소가 없으면 해당 섹션을 생략한다(하위 호환·토큰 절감).
+    """
+    sections = [
+        _summarize_sentence_results(sentence_results),
+        _summarize_issues(issues),
+        _summarize_disfluency(disfluency),
+        _build_transcript_context(transcript or "", script_text or ""),
+    ]
+    return "\n\n".join(s for s in sections if s)
+
+
+# ────────────────────────────────────────────────────────────
 # 공개 API
 # ────────────────────────────────────────────────────────────
 
+try:
+    from langsmith import traceable as _traceable
+    _rag_traceable = _traceable(run_type="retriever", name="build_rag_context")
+except ImportError:
+    def _rag_traceable(fn):
+        return fn
+
+
+@_rag_traceable
 def build_rag_context(features: dict, req, goal_similarity_score: float) -> str:
     """[STEP 8 리뷰] 선택적 RAG 컨텍스트 빌드.
 

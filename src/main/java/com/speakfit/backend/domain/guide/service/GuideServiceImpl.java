@@ -49,6 +49,9 @@ public class GuideServiceImpl implements GuideService {
     private static final double WPM_GUARD_MAX          = 180.0;
     private static final double PITCH_GUARD_RATIO_MIN  = 0.80;   // Baseline -20%
     private static final double PITCH_GUARD_RATIO_MAX  = 1.20;   // Baseline +20%
+    // 사람 발화 F0 물리 음역. 이 범위를 벗어난 baseline Pitch는 손상값으로 보고 폴백.
+    private static final double MIN_HUMAN_PITCH_HZ     = 65.0;
+    private static final double MAX_HUMAN_PITCH_HZ     = 450.0;
     private static final double DB_GUARD_DELTA_MAX     = 6.0;    // ±6 dB
     private static final double PAUSE_GUARD_MIN        = 8.0;    // %
     private static final double PAUSE_GUARD_MAX        = 25.0;   // %
@@ -200,8 +203,13 @@ public class GuideServiceImpl implements GuideService {
         }
 
         // [STEP 2-D] 베이스라인 null 시 §4 지역별 기준값 fallback
-        double basePitch = baseline.getAvgPitch() != null
-                ? baseline.getAvgPitch()
+        //   [가드] baseline Pitch가 사람 음역(65~450Hz) 밖이면 손상값(예: 구버전
+        //   piptrack 배음 오인식 3185Hz)으로 보고 지역 기준값으로 폴백한다.
+        Double rawBasePitch = baseline.getAvgPitch();
+        double basePitch = (rawBasePitch != null
+                && rawBasePitch >= MIN_HUMAN_PITCH_HZ
+                && rawBasePitch <= MAX_HUMAN_PITCH_HZ)
+                ? rawBasePitch
                 : getRegionalFallbackPitch(user);
         double baseWpm = baseline.getAvgWpm() != null
                 ? baseline.getAvgWpm()

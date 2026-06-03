@@ -1,18 +1,58 @@
 import librosa
 import numpy as np
 import os
-from difflib import SequenceMatcher
 # [STEP 7] 공유 임계값은 helpers.py 단일 소스에서 import
 from app.utils.helpers import (
     clamp, normalize_match_text,
     MATCH_THRESHOLD, SHORT_WORD_MATCH_THRESHOLD,
+    calculate_text_similarity, monotonic_dtw_align,
 )
+from app.core.config import VOICE_PITCH_MAX_FRAMES
+
+# [TRACE] LangSmith 트레이싱 — librosa 특징 분석 소요시간을 트레이스에 노출.
+# langsmith 미설치 환경에서도 동작하도록 no-op 폴백 제공.
+try:
+    from langsmith import traceable
+except ImportError:
+    def traceable(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator if args and callable(args[0]) else decorator
+
+# ── [STEP-D] dBFS → 표시용 양수 스케일 변환 ──────────────────────────────────
+# 내부 평가(§6/§7 Gold Standard 비교)는 avgIntensity(dBFS) 그대로 유지.
+# 표시용 volumeScore/volumeLevel만 변환 → 평가 로직에 영향 없음.
+
+_DBFS_MIN = -60.0   # 실질적 묵음 하한 (이 미만은 0으로 clamp)
+_DBFS_MAX =   0.0   # 디지털 풀스케일
+
+def _dbfs_to_volume(dbfs: float) -> tuple:
+    """dBFS → (volumeScore: int 0~100, volumeLevel: str).
+
+    매핑 공식: score = clamp((dbfs - DBFS_MIN) / (DBFS_MAX - DBFS_MIN) * 100, 0, 100)
+    실측 분포(-40 ~ -5 dBFS) 기준 등급:
+        작음  : score <  30  (≈ -42 dBFS 미만)
+        적정  : 30 ≤ score ≤ 70  (≈ -42 ~ -18 dBFS)
+        큼    : score >  70  (≈ -18 dBFS 초과)
+    """
+    score = clamp((dbfs - _DBFS_MIN) / (_DBFS_MAX - _DBFS_MIN) * 100.0, 0.0, 100.0)
+    score_int = int(round(score))
+
+    if score_int < 30:
+        level = "작음"
+    elif score_int <= 70:
+        level = "적정"
+    else:
+        level = "큼"
+
+    return score_int, level
+
 
 MIN_STT_CONFIDENCE = 0.1
 # MATCH_THRESHOLD, SHORT_WORD_MATCH_THRESHOLD → helpers.py로 이전 (중복 제거)
 PRONUNCIATION_SCORE_THRESHOLD = 0.72
 LOW_PRONUNCIATION_THRESHOLD = 0.68
-ALIGNMENT_LOOKAHEAD = 8
+# ALIGNMENT_LOOKAHEAD 제거됨 — [STEP-C] monotonic_dtw_align(helpers.py) 사용으로 불필요
 LONG_PAUSE_GAP_MS = 700
 MIN_WORD_DURATION_MS = 300
 ISSUE_LIMIT = 5
@@ -39,6 +79,7 @@ SLOW_WPM_THRESHOLD = WPM_DEFAULT_MIN   # 100
 PAUSE_PENALTY_PER_SEC = 3.0  # 긴 휴지 1초 = 3점 감점
 PAUSE_MAX_PENALTY     = 20.0 # 최대 감점 한도
 
+@traceable(run_type="tool", name="analyze_voice_features")
 def analyze_voice_features(file_path, stt_text=None, gender=None, max_duration=None):
     """오디오 파일에서 정량적 특징 추출 (Librosa 사용)
 
@@ -70,7 +111,15 @@ def analyze_voice_features(file_path, stt_text=None, gender=None, max_duration=N
         # 1. 목소리 높낮이 (Pitch)
         # [STEP 1] piptrack mean → librosa.yin median + 성별 필터
         # 분석 스크립트: median(librosa.yin(y, fmin=65, fmax=450)) + 성별 필터
-        yin_pitches = librosa.yin(y, fmin=65, fmax=450)
+        # [PERF] yin은 프레임 수에 비례해 느려져 긴 녹음에서 분석시간을 지배한다.
+        #   전체 신호를 대상으로 하되 hop_length를 키워 프레임 수를 VOICE_PITCH_MAX_FRAMES로 상한.
+        #   전역 통계(median/std)는 시간 해상도에 둔감하므로 결과 영향이 미미하다.
+        #   짧은 녹음(hop이 기본 512 이하로 계산되는 약 192초 이하)은 기존과 완전히 동일하게 동작.
+        #   (sr은 기존과 동일하게 yin 기본값을 그대로 사용 — 피치 값 호환 유지)
+        pitch_hop_length = max(512, int(np.ceil(y.size / VOICE_PITCH_MAX_FRAMES)))
+        yin_pitches = librosa.yin(
+            y, fmin=65, fmax=450, frame_length=2048, hop_length=pitch_hop_length
+        )
         yin_pitches = yin_pitches[yin_pitches > 0]  # 무성 구간(0Hz) 제거
 
         gender_upper = gender.upper() if gender else None
@@ -128,14 +177,21 @@ def analyze_voice_features(file_path, stt_text=None, gender=None, max_duration=N
         zcr = librosa.feature.zero_crossing_rate(y)
         avg_zcr = float(np.mean(zcr))
 
+        # [STEP-D] volumeScore / volumeLevel 변환
+        # 내부 평가(§6/§7 Gold Standard 비교)는 avgIntensity(dBFS) 그대로 유지.
+        # 표시용으로만 양수 스케일로 변환 — FE는 이 두 필드만 렌더.
+        volume_score, volume_level = _dbfs_to_volume(float(avg_intensity))
+
         return {
             "durationSec": float(duration),
             "avgWpm": float(avg_wpm),
             "avgPitch": float(avg_pitch),
-            "avgIntensity": float(avg_intensity),   # dBFS (예: -30.0 ~ -10.0)
+            "avgIntensity": float(avg_intensity),   # dBFS (예: -30.0 ~ -10.0) — 내부 평가용 유지
+            "volumeScore": volume_score,            # [STEP-D] 0~100 음량 점수 (표시용)
+            "volumeLevel": volume_level,            # [STEP-D] "작음" / "적정" / "큼" (표시용)
             "avgZcr": float(avg_zcr),
             "pauseRatio": float(pause_ratio),
-            "wpmDiff": 0.0,                         # [STEP 1] 하드코딩 10.0 제거 → STEP 3에서 목표치 대비 실제 차이 계산
+            "wpmDiff": 0.0,
             "pitchDiff": pitch_std,
             "intensityDiff": float(intensity_std),  # dB 단위 표준편차
             "zcrDiff": float(np.std(zcr)),
@@ -155,7 +211,13 @@ def build_word_results(script_words, duration_sec):
     return build_skipped_word_results(script_words)
 
 def build_aligned_word_results(script_words, stt_words):
-    """STT 단어 타임스탬프를 대본 단어 순서에 맞춰 정렬합니다."""
+    """STT 단어 타임스탬프를 대본 단어 순서에 맞춰 정렬합니다.
+
+    [STEP-C] 기존 그리디 lookahead 방식(find_best_stt_match)을
+    monotonic_dtw_align(helpers.py) 공유 엔진으로 교체.
+    - Subsequence DTW → 전역 최적 정렬 + 단조성 보장
+    - 동일 엔진을 실시간(endpoints.py)과 사후(voice_service.py) 양쪽에서 호출
+    """
     if not script_words:
         return []
 
@@ -166,63 +228,39 @@ def build_aligned_word_results(script_words, stt_words):
     if not usable_stt_words:
         return build_skipped_word_results(script_words)
 
+    # ── DTW 정렬 ────────────────────────────────────────────────────────────────
+    # query: 발화된 STT 토큰 (정규화 텍스트)
+    # ref  : 대본 단어 dict 목록 (normalizedText / text 포함)
+    query_tokens = [normalize_match_text(w.get("word") or "") for w in usable_stt_words]
+    ref_dicts    = [{"text": w.text, "normalizedText": getattr(w, "normalizedText", None)} for w in script_words]
+
+    alignments = monotonic_dtw_align(query_tokens, ref_dicts, start_idx=0)
+
+    # query_idx → matched (stt_word, score) 맵 구성
+    stt_match_map = {}   # ref_idx → (stt_word, score)
+    for query_idx, ref_idx, score in alignments:
+        stt_match_map[ref_idx] = (usable_stt_words[query_idx], score)
+
+    # ── 결과 조립 ───────────────────────────────────────────────────────────────
     word_results = []
-    stt_index = 0
     matched_count = 0
 
-    for script_word in script_words:
-        match = find_best_stt_match(script_word, usable_stt_words, stt_index)
-        if match:
-            matched_word_index, matched_word, similarity = match
-            word_results.append(to_matched_word_result(script_word, matched_word, similarity))
-            stt_index = matched_word_index + 1
+    for ref_idx, script_word in enumerate(script_words):
+        if ref_idx in stt_match_map:
+            stt_word, similarity = stt_match_map[ref_idx]
+            word_results.append(to_matched_word_result(script_word, stt_word, similarity))
             matched_count += 1
         else:
             word_results.append(to_skipped_word_result(script_word))
 
     print(
-        "[Python] 단어 alignment 완료: "
+        "[Python] 단어 alignment 완료 (DTW): "
         f"scriptWords={len(script_words)}, sttWords={len(usable_stt_words)}, matched={matched_count}"
     )
     return word_results
 
 def build_skipped_word_results(script_words):
     return [to_skipped_word_result(word) for word in script_words]
-
-def find_best_stt_match(script_word, stt_words, start_index):
-    script_text = normalize_match_text(script_word.normalizedText or script_word.text)
-    if not script_text:
-        return None
-
-    end_index = min(len(stt_words), start_index + ALIGNMENT_LOOKAHEAD)
-    best_match = None
-    best_score = 0.0
-
-    for index in range(start_index, end_index):
-        spoken_text = normalize_match_text(stt_words[index].get("word"))
-        similarity = calculate_word_similarity(script_text, spoken_text)
-        confidence = normalize_stt_confidence(stt_words[index].get("confidence"))
-        order_penalty = (index - start_index) * 0.03
-        score = similarity * 0.8 + confidence * 0.2 - order_penalty
-        if score > best_score:
-            best_score = score
-            best_match = (index, stt_words[index], similarity)
-
-    threshold = SHORT_WORD_MATCH_THRESHOLD if len(script_text) <= 2 else MATCH_THRESHOLD
-    if best_match and best_match[2] >= threshold:
-        return best_match
-
-    return None
-
-def calculate_word_similarity(script_text, spoken_text):
-    if not script_text or not spoken_text:
-        return 0.0
-    if script_text == spoken_text:
-        return 1.0
-    if len(script_text) > 2 and (script_text in spoken_text or spoken_text in script_text):
-        return 0.86
-
-    return SequenceMatcher(None, script_text, spoken_text).ratio()
 
 def to_matched_word_result(script_word, stt_word, similarity):
     stt_confidence = normalize_stt_confidence(stt_word.get("confidence"))
@@ -567,3 +605,92 @@ def to_issue_result(sentence, issue_type, severity, summary, feedback, reason):
         "intensity": sentence.get("avgIntensity"),
         "severity": severity
     }
+
+
+# ── [STAGE 2] 말버릇(필러)/반복어 탐지 ────────────────────────────────────────
+# STT 결과(word 리스트)에서 군더더기 표현과 단어/구 반복을 탐지한다.
+# 주의: STT는 순수 필러("음","어")를 자주 누락하므로, 반복 탐지가 더 신뢰성 높은
+# 신호다. 본 결과는 DB/엔티티/FE를 건드리지 않고 LLM 프롬프트에만 주입한다.
+
+# 보수적인 한국어 필러 어휘(과탐 방지를 위해 명백한 군더더기 위주).
+_FILLER_LEXICON = {
+    "음", "흠", "어", "엄", "으", "으음", "에", "에에",
+    "저기", "그게", "뭐랄까", "뭐지", "그러니까", "그", "막",
+}
+# 반복으로 인정할 최소 연속 횟수(동일 단어가 N회 이상 연달아 등장).
+_MIN_REPEAT_RUN = 3
+# 반복 탐지에서 무시할 자연스러운 짧은 기능어(과탐 방지).
+_REPEAT_IGNORE = {"이", "그", "저", "수", "것", "거", "좀"}
+
+
+def _normalize_filler_token(word):
+    """필러 비교용 정규화: 양끝 구두점/공백 제거, 소문자화."""
+    if not word:
+        return ""
+    token = str(word).strip()
+    # 양끝 구두점 제거(중간 글자는 보존).
+    token = token.strip(".,!?…·~\"'`()[]{}")
+    return token
+
+
+def detect_disfluencies(stt_words):
+    """STT 단어 리스트에서 필러/반복을 탐지해 요약 dict를 반환.
+
+    반환 형식:
+        {
+            "fillerCount": int,                # 탐지된 필러 토큰 총 개수
+            "fillerBreakdown": {filler: count} # 필러별 빈도(상위 위주)
+            "repeatedSequences": [             # 연속 반복 구간
+                {"word": str, "count": int}
+            ],
+        }
+    탐지 실패/입력 없음 시 0/빈 값으로 안전 반환.
+    """
+    result = {"fillerCount": 0, "fillerBreakdown": {}, "repeatedSequences": []}
+    if not stt_words:
+        return result
+
+    tokens = []
+    for w in stt_words:
+        if not isinstance(w, dict):
+            continue
+        norm = _normalize_filler_token(w.get("word"))
+        if norm:
+            tokens.append(norm)
+
+    if not tokens:
+        return result
+
+    # 1) 필러 빈도 집계
+    filler_breakdown = {}
+    for tok in tokens:
+        if tok in _FILLER_LEXICON:
+            filler_breakdown[tok] = filler_breakdown.get(tok, 0) + 1
+
+    filler_count = sum(filler_breakdown.values())
+
+    # 2) 연속 반복 탐지(동일 단어가 _MIN_REPEAT_RUN회 이상 연달아).
+    repeated = []
+    run_word = None
+    run_len = 0
+
+    def _flush_run():
+        if run_word is not None and run_len >= _MIN_REPEAT_RUN and run_word not in _REPEAT_IGNORE:
+            repeated.append({"word": run_word, "count": run_len})
+
+    for tok in tokens:
+        if tok == run_word:
+            run_len += 1
+        else:
+            _flush_run()
+            run_word = tok
+            run_len = 1
+    _flush_run()
+
+    result["fillerCount"] = filler_count
+    # 빈도 내림차순 상위 6개만 노출(프롬프트 비대화 방지).
+    result["fillerBreakdown"] = dict(
+        sorted(filler_breakdown.items(), key=lambda kv: kv[1], reverse=True)[:6]
+    )
+    result["repeatedSequences"] = repeated[:6]
+    return result

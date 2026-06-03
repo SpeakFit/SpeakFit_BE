@@ -16,7 +16,11 @@ public class PythonAnalysisRes {
     @JsonProperty("avgPitch")
     private Double avgPitch;
     @JsonProperty("avgIntensity")
-    private Double avgIntensity;
+    private Double avgIntensity;                // dBFS — 내부 평가용 유지
+    @JsonProperty("volumeScore")
+    private Integer volumeScore;               // [STEP-D] 0~100 음량 점수 (표시용)
+    @JsonProperty("volumeLevel")
+    private String volumeLevel;                // [STEP-D] "작음" / "적정" / "큼" (표시용)
     @JsonProperty("avgZcr")
     private Double avgZcr;
     @JsonProperty("pauseRatio")
@@ -52,6 +56,18 @@ public class PythonAnalysisRes {
     private String goalSummary;
     @JsonProperty("goalFeedback")
     private String goalFeedback;
+    // [STAGE 3] 출력 구조 확장 — 강점/핵심 개선 액션/연습 팁
+    @JsonProperty("strengths")
+    private String strengths;
+    @JsonProperty("improvements")
+    private String improvements;
+    @JsonProperty("practiceTip")
+    private String practiceTip;
+    // [STAGE 4] 내용·구성 피드백
+    @JsonProperty("contentSummary")
+    private String contentSummary;
+    @JsonProperty("contentFeedback")
+    private String contentFeedback;
 
     @JsonProperty("wordResults")
     private List<WordResult> wordResults;
