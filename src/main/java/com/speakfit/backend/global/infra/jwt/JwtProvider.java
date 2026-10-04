@@ -109,8 +109,17 @@ public class JwtProvider {
 
     // API 인증에는 access 토큰만 허용한다. (refresh / ws_practice 토큰은 Bearer 인증에 사용할 수 없다)
     public boolean validateAccessToken(String token) {
+        return hasType(token, TYPE_ACCESS);
+    }
+
+    // 토큰 재발급에는 refresh 토큰만 허용한다.
+    public boolean validateRefreshToken(String token) {
+        return hasType(token, TYPE_REFRESH);
+    }
+
+    private boolean hasType(String token, String expectedType) {
         try {
-            return TYPE_ACCESS.equals(getType(token));
+            return expectedType.equals(getType(token));
         } catch (JwtException | IllegalArgumentException e) {
             return false;
         }

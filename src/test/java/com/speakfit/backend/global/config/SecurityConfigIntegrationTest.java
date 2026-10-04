@@ -84,6 +84,7 @@ class SecurityConfigIntegrationTest {
         mockMvc.perform(post("/auth/login")).andExpect(status().isNotFound());
         mockMvc.perform(post("/auth/signup")).andExpect(status().isNotFound());
         mockMvc.perform(post("/auth/refresh")).andExpect(status().isNotFound());
+        mockMvc.perform(post("/auth/logout")).andExpect(status().isNotFound());
         mockMvc.perform(get("/api/terms")).andExpect(status().isNotFound());
 
         mockMvc.perform(post("/auth/anything-else")).andExpect(status().isUnauthorized());

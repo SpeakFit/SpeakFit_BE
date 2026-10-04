@@ -15,6 +15,9 @@ public enum AuthErrorCode implements BaseCode {
     /* ===================== LOGIN ===================== */
     LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "AUTH401_1", "이메일 또는 비밀번호가 일치하지 않습니다."),
 
+    /* ===================== TOKEN REFRESH ===================== */
+    INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "AUTH401_2", "유효하지 않거나 만료된 리프레시 토큰입니다. 다시 로그인해주세요."),
+
     /* ===================== DUPLICATE ===================== */
     DUPLICATE_EMAIL(HttpStatus.CONFLICT, "AUTH409_1", "이미 사용 중인 이메일입니다."),
     DUPLICATE_NICKNAME(HttpStatus.CONFLICT, "AUTH409_2", "이미 사용 중인 닉네임입니다.");
