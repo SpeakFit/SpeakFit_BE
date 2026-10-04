@@ -5,5 +5,5 @@ import org.springframework.web.multipart.MultipartFile;
 
 public interface VoiceAnalysisService {
     VoiceAnalysisResultRes requestVoiceAnalysis(MultipartFile voiceFile, Long userId);
-    VoiceAnalysisResultRes getVoiceAnalysisResult(Long analysisId);
+    VoiceAnalysisResultRes getVoiceAnalysisResult(Long analysisId, Long userId);
 }

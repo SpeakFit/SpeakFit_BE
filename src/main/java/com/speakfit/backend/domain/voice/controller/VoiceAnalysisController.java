@@ -31,8 +31,9 @@ public class VoiceAnalysisController {
     // 사용자 음색 분석 결과 조회 API
     @GetMapping("/{analysisId}")
     public ResponseEntity<ApiResponse<VoiceAnalysisResultRes>> getVoiceAnalysisResult(
-            @PathVariable("analysisId") Long analysisId) {
-        VoiceAnalysisResultRes result = voiceAnalysisService.getVoiceAnalysisResult(analysisId);
+            @PathVariable("analysisId") Long analysisId,
+            @AuthenticationPrincipal AuthPrincipal authPrincipal) {
+        VoiceAnalysisResultRes result = voiceAnalysisService.getVoiceAnalysisResult(analysisId, authPrincipal.getUserId());
         return ResponseEntity.ok(ApiResponse.onSuccess(SuccessCode.OK, result));
     }
 }
