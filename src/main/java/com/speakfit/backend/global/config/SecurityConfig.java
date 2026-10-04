@@ -1,11 +1,14 @@
 package com.speakfit.backend.global.config;
 
 import com.speakfit.backend.global.config.security.JwtAuthFilter;
+import com.speakfit.backend.global.config.security.RestAccessDeniedHandler;
+import com.speakfit.backend.global.config.security.RestAuthenticationEntryPoint;
 import com.speakfit.backend.global.infra.jwt.JwtProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -25,6 +28,8 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtProvider jwtProvider;
+    private final RestAuthenticationEntryPoint authenticationEntryPoint;
+    private final RestAccessDeniedHandler accessDeniedHandler;
 
     @Value("${app.cors.allowed-origins}")
     private List<String> allowedOrigins;
@@ -66,22 +71,25 @@ public class SecurityConfig {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(form -> form.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler)
+                )
                 .authorizeHttpRequests(auth -> auth
-                        // PUBLIC
+                        // PUBLIC (최소한만 허용, 그 외는 모두 인증 필요)
                         .requestMatchers(
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
                                 "/swagger-ui.html"
                         ).permitAll()
+                        .requestMatchers(HttpMethod.POST,
+                                "/auth/login",
+                                "/auth/signup",
+                                "/auth/refresh"
+                        ).permitAll()
                         .requestMatchers("/api/terms/**").permitAll()
-                        .requestMatchers("/api/styles/**").authenticated()
-                        .requestMatchers("/auth/**").permitAll()
                         .requestMatchers("/uploads/**").permitAll()
                         // PRIVATE
-                        .requestMatchers("/api/practices/**",
-                                "/api/scripts/**"
-                        ).authenticated()
-                        // 나머지
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(new JwtAuthFilter(jwtProvider), UsernamePasswordAuthenticationFilter.class);

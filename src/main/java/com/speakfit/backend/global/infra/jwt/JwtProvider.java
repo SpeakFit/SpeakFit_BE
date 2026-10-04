@@ -17,6 +17,15 @@ import java.util.Date;
 @Component
 public class JwtProvider {
 
+    // 토큰 종류 구분용 클레임. Python 분석 서버가 ws_practice 값을 그대로 검증하므로 값 변경 금지.
+    public static final String TYPE_CLAIM = "type";
+    public static final String TYPE_ACCESS = "access";
+    public static final String TYPE_REFRESH = "refresh";
+    public static final String TYPE_WS_PRACTICE = "ws_practice";
+
+    // HS256 최소 키 길이(256bit)
+    private static final int MIN_SECRET_BYTES = 32;
+
     private final Key key;
     private final long accessExpSeconds;
     private final long refreshExpSeconds;
@@ -26,18 +35,24 @@ public class JwtProvider {
             @Value("${jwt.access-token-exp-seconds}") long accessExpSeconds,
             @Value("${jwt.refresh-token-exp-seconds}") long refreshExpSeconds
     ){
-        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
+        if (secretBytes.length < MIN_SECRET_BYTES) {
+            throw new IllegalStateException(
+                    "jwt.secret(JWT_SECRET)은 최소 " + MIN_SECRET_BYTES + "바이트 이상이어야 합니다. (현재 "
+                            + secretBytes.length + "바이트)");
+        }
+        this.key = Keys.hmacShaKeyFor(secretBytes);
         this.accessExpSeconds = accessExpSeconds;
         this.refreshExpSeconds = refreshExpSeconds;
     }
 
     // 토큰 생성
     public String createAccessToken(Long userId, String email) {
-        return createToken(userId, email, accessExpSeconds);
+        return createToken(userId, email, accessExpSeconds, TYPE_ACCESS);
     }
 
     public String createRefreshToken(Long userId) {
-        return createToken(userId, null, refreshExpSeconds);
+        return createToken(userId, null, refreshExpSeconds, TYPE_REFRESH);
     }
 
     public String createPracticeWebSocketToken(Long userId, Long practiceId) {
@@ -45,7 +60,7 @@ public class JwtProvider {
 
         return Jwts.builder()
                 .subject(String.valueOf(userId))
-                .claim("type", "ws_practice")
+                .claim(TYPE_CLAIM, TYPE_WS_PRACTICE)
                 .claim("practiceId", practiceId)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(600)))
@@ -58,11 +73,12 @@ public class JwtProvider {
         return Instant.now().plusSeconds(refreshExpSeconds);
     }
 
-    private String createToken(Long userId, String email, long expSeconds) {
+    private String createToken(Long userId, String email, long expSeconds, String type) {
         Instant now = Instant.now();
 
         var builder = Jwts.builder()
                 .subject(String.valueOf(userId))
+                .claim(TYPE_CLAIM, type)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(expSeconds)));
 
@@ -84,6 +100,20 @@ public class JwtProvider {
         Claims claims = parseClaims(token);
         Object v = claims.get("email");
         return v == null ? null : String.valueOf(v);
+    }
+
+    public String getType(String token) {
+        Object v = parseClaims(token).get(TYPE_CLAIM);
+        return v == null ? null : String.valueOf(v);
+    }
+
+    // API 인증에는 access 토큰만 허용한다. (refresh / ws_practice 토큰은 Bearer 인증에 사용할 수 없다)
+    public boolean validateAccessToken(String token) {
+        try {
+            return TYPE_ACCESS.equals(getType(token));
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
+        }
     }
 
     public boolean validate(String token) {
