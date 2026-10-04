@@ -223,9 +223,10 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
 
     @Override
     @Transactional(readOnly = true)
-    public VoiceAnalysisResultRes getVoiceAnalysisResult(Long analysisId) {
+    public VoiceAnalysisResultRes getVoiceAnalysisResult(Long analysisId, Long userId) {
         // 저장된 기준 음성 분석 결과를 BaselineVoice 기준으로 조회
-        BaselineVoice baselineVoice = baselineVoiceRepository.findById(analysisId)
+        // 본인 소유가 아닌 id 는 존재하지 않는 것과 동일하게 404 로 응답한다. (id 로 타인 데이터 열람/존재 여부 유추 방지)
+        BaselineVoice baselineVoice = baselineVoiceRepository.findByIdAndUserId(analysisId, userId)
                 .orElseThrow(() -> new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_NOT_FOUND));
 
         return toResponse(baselineVoice);

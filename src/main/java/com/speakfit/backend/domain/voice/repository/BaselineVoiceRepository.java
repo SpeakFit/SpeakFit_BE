@@ -10,4 +10,5 @@ public interface BaselineVoiceRepository extends JpaRepository<BaselineVoice, Lo
     List<BaselineVoice> findAllByUserIdAndIsActiveTrue(Long userId);
     Optional<BaselineVoice> findFirstByUserIdAndIsActiveTrueOrderByIdDesc(Long userId);
     Optional<BaselineVoice> findByUserId(Long userId);
+    Optional<BaselineVoice> findByIdAndUserId(Long id, Long userId);
 }
