@@ -81,8 +81,13 @@ public class PracticeServiceImpl implements PracticeService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_USER_NOT_FOUND));
 
-        Script script = scriptRepository.findById(scriptId)
+        Script script = scriptRepository.findByIdWithUser(scriptId)
                 .orElseThrow(() -> new CustomException(ScriptErrorCode.SCRIPT_NOT_FOUND));
+
+        // 타인의 대본으로 연습 기록을 만들면 연습 시작 응답으로 대본 내용이 노출되므로 소유자를 확인한다.
+        if (!script.getUser().getId().equals(userId)) {
+            throw new CustomException(ScriptErrorCode.SCRIPT_ACCESS_DENIED);
+        }
 
         // 2. 연습 기록(PracticeRecord) 초기 생성 (Style은 NULL, READY 상태)
         PracticeRecord practiceRecord = PracticeRecord.builder()
