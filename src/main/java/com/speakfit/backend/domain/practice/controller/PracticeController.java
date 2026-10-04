@@ -21,15 +21,7 @@ public class PracticeController {
 
     private final PracticeService practiceService;
 
-    // 발표 연습 정보값 입력 및 스타일 추천 구현
-    @PostMapping("/scripts/{scriptId}")
-    public ApiResponse<InputPracticeInfoRes.Response> inputPracticeInfo(@PathVariable @Positive Long scriptId,
-                                                                        @RequestBody @Valid InputPracticeInfoReq.Request request,
-                                                                        @AuthenticationPrincipal AuthPrincipal authPrincipal) {
-        return ApiResponse.onSuccess(SuccessCode.CREATED, practiceService.inputPracticeInfo(scriptId, request, authPrincipal.getUserId()));
-    }
-
-    // 추천 또는 선택한 발표 스타일 확정 구현
+    // 추천 또는 선택한 발표 스타일 확정 및 낭독 가이드 반환 서비스 구현
     @PostMapping("/practices/{practiceId}/select-style")
     public ApiResponse<SelectStyleRes.Response> selectStyle(@PathVariable @Positive Long practiceId,
                                            @RequestBody @Valid SelectStyleReq.Request request,

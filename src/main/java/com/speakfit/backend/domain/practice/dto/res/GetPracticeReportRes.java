@@ -34,6 +34,34 @@ public class GetPracticeReportRes {
         private AiAnalysisDetail aiAnalysis;
         private List<PracticeIssueRes> practiceIssues;
         private List<SentenceRes> sentences;
+        // [STAGE 5] 직전 연습 대비 추이
+        private TrendDetail trend;
+    }
+
+    /** [STAGE 5] 동일 대본 직전 연습 대비 추이. 비교 대상이 없으면 hasPrevious=false. */
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TrendDetail {
+        private boolean hasPrevious;
+        private Long previousPracticeId;
+        private LocalDateTime previousCreatedAt;
+        private TrendMetric wpm;
+        private TrendMetric goalScore;
+        private TrendMetric pauseRatio;
+        private TrendMetric volumeScore;
+    }
+
+    /** current - previous = delta. delta>0이면 증가. */
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TrendMetric {
+        private Double current;
+        private Double previous;
+        private Double delta;
     }
 
     @Getter
@@ -43,9 +71,20 @@ public class GetPracticeReportRes {
     public static class AnalysisDetail {
         private StatInfo wpm;
         private StatInfo pitch;
-        private StatInfo intensity;
+        private StatInfo intensity;           // avg = dBFS (내부 평가용 유지)
         private StatInfo zcr;
         private PauseInfo pause;
+        private VolumeDisplay volume;         // [STEP-D] 표시용 음량 (FE 렌더용)
+    }
+
+    /** [STEP-D] 사용자 표시용 음량 정보. avgIntensity(dBFS)와 분리. */
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class VolumeDisplay {
+        private Integer score;   // 0~100 음량 점수
+        private String level;    // "작음" / "적정" / "큼"
     }
 
     @Getter
@@ -81,6 +120,13 @@ public class GetPracticeReportRes {
         private Double goalSimilarityScore;
         private String goalSummary;
         private String goalFeedback;
+        // [STAGE 3] 출력 구조 확장 — 강점/핵심 개선 액션/연습 팁
+        private String strengths;
+        private String improvements;
+        private String practiceTip;
+        // [STAGE 4] 내용·구성 피드백
+        private String contentSummary;
+        private String contentFeedback;
         private LocalDateTime createdAt;
     }
 

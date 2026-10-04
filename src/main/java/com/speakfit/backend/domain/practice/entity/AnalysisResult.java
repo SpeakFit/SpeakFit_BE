@@ -27,7 +27,13 @@ public class AnalysisResult extends BaseEntity {
     private Double avgPitch;
 
     @Column(name = "avg_intensity")
-    private Double avgIntensity;
+    private Double avgIntensity;               // dBFS — 내부 평가용
+
+    @Column(name = "volume_score")
+    private Integer volumeScore;               // [STEP-D] 0~100 음량 점수 (표시용)
+
+    @Column(name = "volume_level")
+    private String volumeLevel;                // [STEP-D] "작음" / "적정" / "큼" (표시용)
 
     @Column(name = "avg_zcr")
     private Double avgZcr;
@@ -73,6 +79,12 @@ public class AnalysisResult extends BaseEntity {
         this.intensityDiff = intensityDiff;
         this.zcrDiff = zcrDiff;
         this.pauseCount = pauseCount;
+    }
+
+    // [STEP-D] 표시용 음량 필드 갱신
+    public void updateVolumeDisplay(Integer volumeScore, String volumeLevel) {
+        this.volumeScore = volumeScore;
+        this.volumeLevel = volumeLevel;
     }
 
     public void updateStyleData(String mostSimilarStyle, Integer matchingRate, String voiceStyleDescription) {

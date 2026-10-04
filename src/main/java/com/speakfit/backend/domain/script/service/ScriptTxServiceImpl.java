@@ -45,6 +45,16 @@ public class ScriptTxServiceImpl implements ScriptTxService {
         return scriptRepository.save(script);
     }
 
+    // [STEP-B] 낭독기호 비동기 완성 후 DB 갱신 — 별도 트랜잭션으로 커밋
+    @Override
+    @Transactional
+    public void updateMarkedContent(Long scriptId, String markedContent) {
+        scriptRepository.findById(scriptId).ifPresent(script -> {
+            script.updateMarkedContent(markedContent);
+            // @Transactional 내에서 변경 감지(Dirty Checking)로 자동 저장
+        });
+    }
+
     @Override
     @Transactional
     public void markPptProcessing(Long scriptId, Long userId) {

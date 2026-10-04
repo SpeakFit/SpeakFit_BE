@@ -15,4 +15,18 @@ public enum StyleType {
     public String getDisplayName() {
         return displayName;
     }
+
+    /**
+     * [STEP 3-A] 한글 스타일명 → StyleType 매핑 (문자열 매칭 일원화)
+     * SpeechStyleCluster.styleName("열정적인") 및 CreateGuideReq.selectedStyle("열정적인 스타일") 모두 처리.
+     */
+    public static StyleType fromKoreanLabel(String label) {
+        if (label == null) return null;
+        String s = label.replace("스타일", "").trim();
+        if (s.contains("열정적인")) return ENERGETIC_FAST;
+        if (s.contains("전달력")) return DELIVERY;
+        if (s.contains("신중한")) return CALM_LOW_TONE;
+        if (s.contains("지적인")) return STANDARD_LECTURE;
+        return null;
+    }
 }

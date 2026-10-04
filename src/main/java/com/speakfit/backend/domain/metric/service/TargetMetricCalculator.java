@@ -33,6 +33,12 @@ public class TargetMetricCalculator {
     private final MasterDeliveryMetricRepository masterDeliveryMetricRepository;
     private final MetricThresholdRepository metricThresholdRepository;
 
+    // 사람 목소리 기본주파수(F0)의 물리적 음역. 이 범위를 벗어난 baseline Pitch는
+    // 손상된 값(예: 구버전 piptrack 배음 오인식)으로 보고 목표 Pitch 산출을 건너뛴다.
+    // 근거: Aalto Univ. Speech Processing — 성인 발화 F0 약 80~450Hz.
+    private static final double MIN_HUMAN_PITCH_HZ = 65.0;
+    private static final double MAX_HUMAN_PITCH_HZ = 450.0;
+
     public TargetMetricResult calculate(
             User user,
             StyleType styleType,
@@ -95,6 +101,14 @@ public class TargetMetricCalculator {
             TargetAudienceMetric audienceMetric
     ) {
         if (baselineVoice == null || baselineVoice.getAvgPitch() == null || styleMatrix == null) {
+            return null;
+        }
+
+        // [가드] baseline Pitch가 사람 음역(65~450Hz)을 벗어나면 손상된 값으로 판단.
+        //   ratio 클램프는 baseline 대비 상대값이라 절대 이상치(예: 3185Hz)를 못 거른다.
+        //   이 경우 목표 Pitch를 null로 두어 RAG·리포트에서 해당 줄을 생략한다.
+        double baselinePitch = baselineVoice.getAvgPitch();
+        if (baselinePitch < MIN_HUMAN_PITCH_HZ || baselinePitch > MAX_HUMAN_PITCH_HZ) {
             return null;
         }
 

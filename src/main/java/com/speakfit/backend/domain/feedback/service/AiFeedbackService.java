@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.util.retry.Retry;
 import java.time.LocalDate;
 import java.time.Duration;
 
@@ -21,7 +22,9 @@ public class AiFeedbackService {
     private final PlatformTransactionManager transactionManager;
 
     // 비동기로 피드백을 처리하는 메소드입니다.
-    @Async
+    // feedbackExecutor 스레드 위에서 block()으로 호출하여 try/catch가 실제 예외를 잡도록 통일
+    // 사용자 요청 스레드와 완전히 분리된 별도 스레드에서 실행됨
+    @Async("feedbackExecutor")
     public void processFeedbackAsync(Long feedbackId, Double w, Double h, Double d, Double z, Double p, LocalDate start, LocalDate end) {
         try {
             PythonFeedbackReq req = PythonFeedbackReq.builder()
@@ -35,21 +38,22 @@ public class AiFeedbackService {
                     .endDate(end.toString())
                     .build();
 
-            webClient.post()
+            PythonFeedbackRes res = webClient.post()
                     .uri("/feedback/summary")
                     .bodyValue(req)
                     .retrieve()
                     .bodyToMono(PythonFeedbackRes.class)
                     .timeout(Duration.ofSeconds(60))
-                    .subscribe(
-                            res -> updateFeedbackResult(feedbackId, res),
-                            err -> {
-                                log.error("AI Error: ", err);
-                                failFeedbackResult(feedbackId);
-                            }
-                    );
+                    // 일시적 AI 서버 장애 대비: 2초 간격으로 최대 2회 재시도
+                    .retryWhen(Retry.backoff(2, Duration.ofSeconds(2))
+                            .doBeforeRetry(signal ->
+                                    log.warn("AI 피드백 재시도 feedbackId={}, attempt={}",
+                                            feedbackId, signal.totalRetries() + 1)))
+                    .block(); // @Async 스레드에서 블로킹 → try/catch가 실제 예외를 직접 포착
+
+            updateFeedbackResult(feedbackId, res);
         } catch (Exception e) {
-            log.error("Internal Error: ", e);
+            log.error("AI 피드백 처리 실패 feedbackId={}", feedbackId, e);
             failFeedbackResult(feedbackId);
         }
     }

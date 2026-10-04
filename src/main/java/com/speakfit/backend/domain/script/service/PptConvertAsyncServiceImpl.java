@@ -4,8 +4,8 @@ import com.speakfit.backend.domain.script.dto.res.PptConvertRes;
 import com.speakfit.backend.domain.script.dto.res.UploadPptRes;
 import com.speakfit.backend.domain.script.exception.ScriptErrorCode;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -20,13 +20,20 @@ import java.util.Map;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class PptConvertAsyncServiceImpl implements PptConvertAsyncService {
 
     private static final Path UPLOAD_ROOT_PATH = Paths.get("uploads").toAbsolutePath().normalize();
 
     private final ScriptTxService scriptTxService;
     private final WebClient webClient;
+
+    public PptConvertAsyncServiceImpl(
+            ScriptTxService scriptTxService,
+            @Qualifier("webClient") WebClient webClient
+    ) {
+        this.scriptTxService = scriptTxService;
+        this.webClient = webClient;
+    }
 
     @Override
     @Async("pptConvertExecutor")

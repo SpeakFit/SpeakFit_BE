@@ -113,7 +113,14 @@ public class FeedbackServiceImpl implements FeedbackService {
             throw new CustomException(FeedbackErrorCode.FEEDBACK_ACCESS_DENIED);
         }
 
-        // 2. 분석 중인 경우 조기 반환
+        // 2. 분석 미완료 상태(GENERATING / FAILED) 조기 반환 — 상태별 사용자 안내 메시지 분기
+        if (feedback.getStatus() == FeedbackStatus.FAILED) {
+            return GetFeedbackDetailRes.builder()
+                    .id(feedback.getId())
+                    .status(feedback.getStatus().toString())
+                    .message("AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
+                    .build();
+        }
         if (feedback.getStatus() != FeedbackStatus.COMPLETED) {
             return GetFeedbackDetailRes.builder()
                     .id(feedback.getId())
@@ -133,38 +140,39 @@ public class FeedbackServiceImpl implements FeedbackService {
         // 🌟 [★핵심 최적화] 분석 결과 일괄 조회 (중복 쿼리 제거 및 N+1 방지 해결)
         List<AnalysisResult> analysisResults = analysisResultRepository.findByPracticeRecordIn(curRecords);
 
+        // 생성일자 오름차순으로 정렬 (그래프 추이용)
+        analysisResults.sort(Comparator.comparing(r -> r.getPracticeRecord().getCreatedAt()));
+
         // 4. 대시보드 상단에 띄울 전체 평균 스펙 연산 (이미 긁어온 analysisResults 리스트 재사용)
         CalculatedMetrics curSummary = getCalculatedMetrics(analysisResults);
 
-        // 5. 날짜별(LocalDate) 그룹핑 진행
-        Map<LocalDate, List<AnalysisResult>> groupedByDate = analysisResults.stream()
-                .collect(Collectors.groupingBy(result -> result.getPracticeRecord().getCreatedAt().toLocalDate()));
-
+        // 5. 개별 연습 회차별 데이터 조립 (날짜별 그룹화 제거)
         List<GetFeedbackDetailRes.TrendPoint> speedTrends = new ArrayList<>();
         List<GetFeedbackDetailRes.TrendPoint> dbTrends = new ArrayList<>();
         List<GetFeedbackDetailRes.TrendPoint> pauseTrends = new ArrayList<>();
         List<GetFeedbackDetailRes.TrendPoint> zcrTrends = new ArrayList<>();
         List<GetFeedbackDetailRes.TrendPoint> hzTrends = new ArrayList<>();
 
-        // 날짜 오름차순으로 정렬하여 각 지표 배열 조립
-        groupedByDate.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .forEach(entry -> {
-                    String dateStr = entry.getKey().toString();
-                    List<AnalysisResult> list = entry.getValue();
+        int totalPractices = analysisResults.size();
+        for (int i = 0; i < totalPractices; i++) {
+            AnalysisResult result = analysisResults.get(i);
+            
+            // 회차 레이블 계산 (가장 최근이 '현회차', 이전은 -1, -2...)
+            int diff = i - (totalPractices - 1);
+            String sessionLabel = (diff == 0) ? "현회차" : diff + "회차";
 
-                    double speedVal = list.stream().filter(r -> r.getAvgWpm() != null).mapToDouble(AnalysisResult::getAvgWpm).average().orElse(0.0);
-                    double dbVal = list.stream().filter(r -> r.getAvgIntensity() != null).mapToDouble(AnalysisResult::getAvgIntensity).average().orElse(0.0);
-                    double pauseVal = list.stream().filter(r -> r.getPauseCount() != null).mapToDouble(AnalysisResult::getPauseCount).average().orElse(0.0);
-                    double zcrVal = list.stream().filter(r -> r.getAvgZcr() != null).mapToDouble(AnalysisResult::getAvgZcr).average().orElse(0.0) * 100.0;
-                    double hzVal = list.stream().filter(r -> r.getAvgPitch() != null).mapToDouble(AnalysisResult::getAvgPitch).average().orElse(0.0);
+            double speedVal = result.getAvgWpm() != null ? result.getAvgWpm() : 0.0;
+            double dbVal = result.getAvgIntensity() != null ? result.getAvgIntensity() : 0.0;
+            double pauseVal = result.getPauseCount() != null ? result.getPauseCount().doubleValue() : 0.0;
+            double zcrVal = result.getAvgZcr() != null ? result.getAvgZcr() * 100.0 : 0.0;
+            double hzVal = result.getAvgPitch() != null ? result.getAvgPitch() : 0.0;
 
-                    speedTrends.add(new GetFeedbackDetailRes.TrendPoint(dateStr, Math.round(speedVal * 10.0) / 10.0));
-                    dbTrends.add(new GetFeedbackDetailRes.TrendPoint(dateStr, Math.round(dbVal * 10.0) / 10.0));
-                    pauseTrends.add(new GetFeedbackDetailRes.TrendPoint(dateStr, Math.round(pauseVal * 10.0) / 10.0));
-                    zcrTrends.add(new GetFeedbackDetailRes.TrendPoint(dateStr, Math.round(zcrVal * 10.0) / 10.0));
-                    hzTrends.add(new GetFeedbackDetailRes.TrendPoint(dateStr, Math.round(hzVal * 10.0) / 10.0));
-                });
+            speedTrends.add(new GetFeedbackDetailRes.TrendPoint(sessionLabel, Math.round(speedVal * 10.0) / 10.0));
+            dbTrends.add(new GetFeedbackDetailRes.TrendPoint(sessionLabel, Math.round(dbVal * 10.0) / 10.0));
+            pauseTrends.add(new GetFeedbackDetailRes.TrendPoint(sessionLabel, Math.round(pauseVal * 10.0) / 10.0));
+            zcrTrends.add(new GetFeedbackDetailRes.TrendPoint(sessionLabel, Math.round(zcrVal * 10.0) / 10.0));
+            hzTrends.add(new GetFeedbackDetailRes.TrendPoint(sessionLabel, Math.round(hzVal * 10.0) / 10.0));
+        }
 
         // 6. 개선 대상 지표 목록 파싱
         List<String> targetMetrics = Collections.emptyList();
