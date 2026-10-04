@@ -61,7 +61,8 @@ PR 규칙:
 
 ```dotenv
 CORS_ALLOWED_ORIGINS=https://speak-fit-fe.vercel.app,http://localhost:5173
-CORS_ALLOWED_ORIGIN_PATTERNS=https://*.vercel.app
+# Vercel 프리뷰 배포가 필요하면 와일드카드 대신 팀/프로젝트로 좁힌 패턴만 지정 (credentials 허용 상태이므로 https://*.vercel.app 금지)
+# CORS_ALLOWED_ORIGIN_PATTERNS=
 AI_BASE_URL=http://localhost:5000
 WS_BASE_URL=ws://localhost:5000/ws/practice
 ```
