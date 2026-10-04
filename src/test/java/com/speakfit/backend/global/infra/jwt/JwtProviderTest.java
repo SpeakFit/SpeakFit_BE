@@ -48,6 +48,15 @@ class JwtProviderTest {
         assertThat(provider.getType(token)).isEqualTo(JwtProvider.TYPE_REFRESH);
         assertThat(provider.validate(token)).isTrue();
         assertThat(provider.validateAccessToken(token)).isFalse();
+        assertThat(provider.validateRefreshToken(token)).isTrue();
+    }
+
+    @Test
+    @DisplayName("access 토큰은 재발급(refresh)용으로 쓸 수 없다")
+    void accessTokenIsRejectedAsRefresh() {
+        JwtProvider provider = provider();
+        assertThat(provider.validateRefreshToken(provider.createAccessToken(7L, "a@b.com"))).isFalse();
+        assertThat(provider.validateRefreshToken(provider.createPracticeWebSocketToken(7L, 1L))).isFalse();
     }
 
     @Test

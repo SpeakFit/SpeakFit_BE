@@ -85,7 +85,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST,
                                 "/auth/login",
                                 "/auth/signup",
-                                "/auth/refresh"
+                                "/auth/refresh",
+                                "/auth/logout"
                         ).permitAll()
                         .requestMatchers("/api/terms/**").permitAll()
                         .requestMatchers("/uploads/**").permitAll()

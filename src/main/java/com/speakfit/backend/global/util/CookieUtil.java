@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class CookieUtil {
 
+    public static final String REFRESH_TOKEN_COOKIE = "refreshToken";
+
     @Value("${app.cookie.secure}")
     private boolean secure;
 
@@ -15,7 +17,7 @@ public class CookieUtil {
                                       String refreshToken,
                                       long maxAgeSeconds) {
 
-        ResponseCookie cookie = ResponseCookie.from("refreshToken", refreshToken)
+        ResponseCookie cookie = ResponseCookie.from(REFRESH_TOKEN_COOKIE, refreshToken)
                 .httpOnly(true)
                 .secure(secure)
                 .path("/")
@@ -28,7 +30,7 @@ public class CookieUtil {
 
     public void clearRefreshTokenCookie(HttpServletResponse response) {
 
-        ResponseCookie cookie = ResponseCookie.from("refreshToken", "")
+        ResponseCookie cookie = ResponseCookie.from(REFRESH_TOKEN_COOKIE, "")
                 .httpOnly(true)
                 .secure(secure)
                 .path("/")

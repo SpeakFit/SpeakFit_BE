@@ -15,6 +15,7 @@ import com.speakfit.backend.domain.user.entity.User;
 import com.speakfit.backend.domain.user.repository.UserRepository;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import com.speakfit.backend.global.infra.jwt.JwtProvider;
+import com.speakfit.backend.global.util.TokenHashUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -128,20 +129,62 @@ public class AuthServiceImpl implements AuthService {
             throw new CustomException(AuthErrorCode.LOGIN_FAILED);
         }
 
-        // 토큰 생성
+        return issueTokens(user);
+    }
+
+    /** 토큰 재발급 **/
+    // 재사용(탈취) 감지 시 저장된 토큰을 삭제하는 작업이 예외로 롤백되지 않도록 한다.
+    @Override
+    @Transactional(noRollbackFor = CustomException.class)
+    public LoginRes refresh(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank() || !jwtProvider.validateRefreshToken(refreshToken)) {
+            throw new CustomException(AuthErrorCode.INVALID_REFRESH_TOKEN);
+        }
+
+        User user = userRepository.findById(jwtProvider.getUserId(refreshToken))
+                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_REFRESH_TOKEN));
+
+        RefreshToken stored = refreshTokenRepository.findByUser(user)
+                .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_REFRESH_TOKEN));
+
+        if (!TokenHashUtil.matches(stored.getTokenHash(), TokenHashUtil.sha256Hex(refreshToken))) {
+            // 이미 회전되어 폐기된 토큰이 다시 사용됨 -> 탈취 가능성. 해당 사용자의 세션을 끊는다.
+            refreshTokenRepository.delete(stored);
+            throw new CustomException(AuthErrorCode.INVALID_REFRESH_TOKEN);
+        }
+
+        if (stored.isExpired()) {
+            refreshTokenRepository.delete(stored);
+            throw new CustomException(AuthErrorCode.INVALID_REFRESH_TOKEN);
+        }
+
+        return issueTokens(user);
+    }
+
+    /** 로그아웃 **/
+    @Override
+    public void logout(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank() || !jwtProvider.validateRefreshToken(refreshToken)) {
+            return;
+        }
+        refreshTokenRepository.deleteByUserId(jwtProvider.getUserId(refreshToken));
+    }
+
+    // access/refresh 토큰을 새로 발급하고 refresh 토큰은 해시로 DB에 저장(기존 토큰은 대체)한다.
+    private LoginRes issueTokens(User user) {
         String accessToken = jwtProvider.createAccessToken(user.getId(), user.getEmail());
         String refreshToken = jwtProvider.createRefreshToken(user.getId());
         Instant refreshExpiresAt = jwtProvider.getRefreshTokenExpiresAt();
+        String refreshTokenHash = TokenHashUtil.sha256Hex(refreshToken);
 
-        // refreshToken DB 저장
         RefreshToken rt = refreshTokenRepository.findByUser(user)
                 .orElseGet(() -> RefreshToken.builder()
                         .user(user)
-                        .token(refreshToken)
+                        .tokenHash(refreshTokenHash)
                         .expiresAt(refreshExpiresAt)
                         .build());
 
-        rt.updateToken(refreshToken, refreshExpiresAt);
+        rt.updateToken(refreshTokenHash, refreshExpiresAt);
         refreshTokenRepository.save(rt);
 
         return LoginRes.builder()
