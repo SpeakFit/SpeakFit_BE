@@ -3,12 +3,9 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 from langsmith import Client as LangSmithClient
 
-# 환경 설정 로드 (.env 파일이 SpeakFit_BE 루트에 있음)
+# 환경 설정 로드 (로컬 개발: SpeakFit_BE 루트의 .env, 컨테이너/운영: 프로세스 환경변수). 예시는 .env.python.example 참고.
 env_path = os.path.join(os.path.dirname(__file__), '../../../.env')
-print(f"[Python] .env 경로 확인: {os.path.abspath(env_path)}")
-print(f"[Python] 파일 존재 여부: {os.path.exists(env_path)}")
 load_dotenv(env_path)
-print(f"[Python] GOOGLE_STT_ENABLED 값: {os.getenv('GOOGLE_STT_ENABLED')}")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -31,20 +28,22 @@ else:
     print("[Python] LANGSMITH_API_KEY 없음 — 트레이싱 비활성화", flush=True)
 
 # Gemini 설정
-model = None          # 피드백/낭독기호 등 품질 우선 (gemini-2.5-flash)
-script_model = None   # 대본 초안 생성 — 빠른 경량 모델 (gemini-2.5-flash-lite)
-feedback_model = None # 발표 피드백/요약 (gemini-2.5-flash, 기존 model과 동일)
+GEMINI_MODEL_NAME = "gemini-3.1-flash-lite"
+
+model = None          # 피드백/낭독기호 등에 쓰는 기본 모델 (feedback_model 과 동일 인스턴스)
+script_model = None   # 대본 초안 생성용 모델
+feedback_model = None # 발표 피드백/요약용 모델
 
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        # 대본 초안/최적화: 속도 우선 경량 모델
-        script_model = genai.GenerativeModel('gemini-3.1-flash-lite')
-        # 피드백/요약/낭독기호: 품질 우선 모델
-        feedback_model = genai.GenerativeModel('gemini-3.1-flash-lite')
+        # 대본 초안/최적화
+        script_model = genai.GenerativeModel(GEMINI_MODEL_NAME)
+        # 피드백/요약/낭독기호
+        feedback_model = genai.GenerativeModel(GEMINI_MODEL_NAME)
         # 기존 코드 호환성 유지 — feedback_model과 동일 인스턴스
         model = feedback_model
-        print("[Python] Gemini AI 엔진 준비 완료 (script=flash-lite, feedback=flash)")
+        print(f"[Python] Gemini AI 엔진 준비 완료 (model={GEMINI_MODEL_NAME})")
     except Exception as e:
         print(f"[Python] Gemini 설정 실패: {e}")
 else:
@@ -80,8 +79,8 @@ GOOGLE_STT_STREAM_ALLOWED_ENCODINGS = [
 #   짧은 녹음(약 192초 이하)은 기본 hop(512)과 동일하게 동작해 결과가 변하지 않는다.
 VOICE_PITCH_MAX_FRAMES = int(os.getenv("VOICE_PITCH_MAX_FRAMES", "6000"))
 
-# S3 설정 (Spring Boot .env와 동일한 키 사용)
-S3_BUCKET_NAME = os.getenv("AWS_S3_BUCKET") or os.getenv("CLOUD_AWS_S3_BUCKET", "")
-S3_REGION = os.getenv("AWS_REGION") or os.getenv("CLOUD_AWS_REGION_STATIC", "ap-northeast-2")
-AWS_ACCESS_KEY_ID_VAL = os.getenv("AWS_ACCESS_KEY") or os.getenv("CLOUD_AWS_CREDENTIALS_ACCESS_KEY", "")
-AWS_SECRET_ACCESS_KEY_VAL = os.getenv("AWS_SECRET_KEY") or os.getenv("CLOUD_AWS_CREDENTIALS_SECRET_KEY", "")
+# S3 설정 (Spring Boot 와 동일한 환경변수 이름 사용)
+S3_BUCKET_NAME = os.getenv("AWS_S3_BUCKET", "")
+S3_REGION = os.getenv("AWS_REGION", "ap-northeast-2")
+AWS_ACCESS_KEY_ID_VAL = os.getenv("AWS_ACCESS_KEY", "")
+AWS_SECRET_ACCESS_KEY_VAL = os.getenv("AWS_SECRET_KEY", "")

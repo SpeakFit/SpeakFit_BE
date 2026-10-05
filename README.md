@@ -53,33 +53,40 @@ PR 규칙:
 - MySQL 설치 및 실행
 - IntelliJ IDEA/Ultimate
 ### 2) Create Local DB & User (MySQL)
+
+```sql
+CREATE DATABASE speakfit CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+- 테이블은 첫 기동 시 `ddl-auto: update` 로 자동 생성됩니다.
+- 시드 데이터(`baseline_regional_metric_insert.sql`, `speech_style_cluster_insert.sql` 등)는 테이블 생성 후 직접 넣어야 합니다.
+- `local` 프로파일의 DB 기본값은 `localhost:3306/speakfit`, 사용자 `root`, 비밀번호 `password` 입니다. 다르면 아래 `.env` 의 `DB_*` 로 지정합니다.
+
 ### 3) Create .env File
 
-프로젝트 루트에 .env 파일 생성
+`.env.spring.example` 을 프로젝트 루트에 `.env` 로 복사해서 값을 채웁니다. (`.env` 는 Git 에 올라가지 않습니다.)
 
-프론트엔드 로컬/배포 URL을 허용하려면 아래 CORS 값을 포함합니다.
-
-```dotenv
-CORS_ALLOWED_ORIGINS=https://speak-fit-fe.vercel.app,http://localhost:5173
-# Vercel 프리뷰 배포가 필요하면 와일드카드 대신 팀/프로젝트로 좁힌 패턴만 지정 (credentials 허용 상태이므로 https://*.vercel.app 금지)
-# CORS_ALLOWED_ORIGIN_PATTERNS=
-AI_BASE_URL=http://localhost:5000
-WS_BASE_URL=ws://localhost:5000/ws/practice
+```bash
+cp .env.spring.example .env
 ```
 
-Spring을 `docker-compose`로 실행하고 Python 분석 서버가 Docker 호스트에서 실행되는 경우에는 `localhost`가 Spring 컨테이너 자신을 가리킵니다. 이때 `docker-compose.yml`의 `extra_hosts` alias를 사용해 `AI_BASE_URL`은 호스트 Python 서버로, `WS_BASE_URL`은 브라우저가 접속할 클라이언트용 WebSocket 주소로 설정합니다.
+Python 분석 서버의 환경변수는 `.env.python.example` 을 참고합니다. `JWT_SECRET` 은 두 서버가 **같은 값**이어야 합니다.
 
-```dotenv
-AI_BASE_URL=http://host.docker.internal:5000
-WS_BASE_URL=ws://localhost:5000/ws/practice
-```
+| 구분 | 환경변수 |
+|---|---|
+| DB | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD` |
+| JWT | `JWT_SECRET`(32바이트 이상), `JWT_ACCESS_EXP_SECONDS`, `JWT_REFRESH_EXP_SECONDS` |
+| AWS | `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `AWS_S3_BUCKET`, `AWS_REGION` |
+| 주소 | `CORS_ALLOWED_ORIGINS`, `AI_BASE_URL`(백엔드→Python), `WS_BASE_URL`(브라우저→WebSocket) |
 
-배포 환경에서도 Spring만 Docker 컨테이너로 뜨고 Python 분석 서버가 호스트에서 직접 실행되는 경우에는 `AI_BASE_URL`과 `WS_BASE_URL`의 역할을 분리합니다.
+> 기존 `LOCAL_DB_URL`, `LOCAL_DB_USERNAME`, `LOCAL_DB_PASSWORD` 는 `DB_*` 로 대체되었습니다. (local 프로파일에서만 한동안 호환)
+> `JWT_ACCESS_TOKEN_EXP_SECONDS`, `JWT_REFRESH_TOKEN_EXP_SECONDS` 는 `JWT_ACCESS_EXP_SECONDS`, `JWT_REFRESH_EXP_SECONDS` 로 통일되었습니다.
 
-```dotenv
-AI_BASE_URL=http://<python-server-host>:5000
-WS_BASE_URL=wss://<public-api-domain>/ws/practice
-```
+`prod` 프로파일은 `DB_HOST`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `CORS_ALLOWED_ORIGINS`, `AI_BASE_URL`, `WS_BASE_URL` 이 없으면 **기동에 실패**합니다. (잘못된 기본값으로 조용히 동작하는 것을 막기 위함)
+
+`CORS_ALLOWED_ORIGINS` 를 지정하면 기본값(`http://localhost:5173,http://localhost:3000`)을 대체하므로 필요한 주소를 모두 적습니다.
+
+헬스체크: `GET /actuator/health` (인증 없이 접근 가능, DB 연결 상태 포함). `prod` 에서는 Swagger 가 비활성화됩니다.
 
 ### 4) IntelliJ Run Configuration (local profile)
 

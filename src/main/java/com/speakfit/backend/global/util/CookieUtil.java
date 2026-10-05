@@ -13,6 +13,12 @@ public class CookieUtil {
     @Value("${app.cookie.secure}")
     private boolean secure;
 
+    // 운영(HTTPS, 프론트와 API 도메인이 다름): SameSite=None + Secure
+    // 로컬(HTTP, 프론트와 API 모두 localhost 로 같은 사이트): Secure 없이 SameSite=None 은 브라우저가 거부하므로 Lax 를 사용한다.
+    private String sameSite() {
+        return secure ? "None" : "Lax";
+    }
+
     public void addRefreshTokenCookie(HttpServletResponse response,
                                       String refreshToken,
                                       long maxAgeSeconds) {
@@ -21,7 +27,7 @@ public class CookieUtil {
                 .httpOnly(true)
                 .secure(secure)
                 .path("/")
-                .sameSite("None")
+                .sameSite(sameSite())
                 .maxAge(maxAgeSeconds)
                 .build();
 
@@ -34,7 +40,7 @@ public class CookieUtil {
                 .httpOnly(true)
                 .secure(secure)
                 .path("/")
-                .sameSite("None")
+                .sameSite(sameSite())
                 .maxAge(0)
                 .build();
 

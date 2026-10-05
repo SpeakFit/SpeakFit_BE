@@ -88,6 +88,8 @@ public class SecurityConfig {
                                 "/auth/refresh",
                                 "/auth/logout"
                         ).permitAll()
+                        // 헬스체크 (로드밸런서/Docker 용, 상세 정보는 노출하지 않음)
+                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/api/terms/**").permitAll()
                         .requestMatchers("/uploads/**").permitAll()
                         // PRIVATE
