@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.endpoints import router
@@ -10,10 +12,17 @@ add_paths()
 
 app = FastAPI(title="SpeakFit Analysis Server")
 
-# CORS 설정 추가
+# CORS: 이 서버는 Spring 백엔드가 서버 간으로 호출하므로 기본적으로 브라우저 교차 출처 요청을 허용하지 않는다.
+# 브라우저에서 직접 HTTP 요청을 보내야 할 때만 CORS_ALLOWED_ORIGINS(쉼표 구분)로 명시한다.
+# (WebSocket 은 CORS 대상이 아니며 JWT 토큰으로 인증한다.)
+_cors_allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
