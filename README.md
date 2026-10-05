@@ -61,6 +61,7 @@ CREATE DATABASE speakfit CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 - 테이블과 시드 데이터는 첫 기동 시 **Flyway** 가 `src/main/resources/db/migration/V*__*.sql` 을 순서대로 적용해 만듭니다. (`ddl-auto` 는 `validate` 로, 엔티티와 스키마가 다르면 기동이 실패합니다.)
 - 스키마나 기준 데이터를 바꿀 때는 기존 `V*.sql` 을 수정하지 말고 새 `V{다음번호}__설명.sql` 을 추가합니다. (이미 적용된 파일을 고치면 Flyway 체크섬 검증으로 기동이 실패합니다.)
 - 예전에 `ddl-auto: update` 로 만든 로컬 DB 는 Flyway 이력이 없어 기동이 거부됩니다. 개발용 DB 라면 `DROP DATABASE speakfit;` 후 위 `CREATE DATABASE` 를 다시 실행하고 기동하세요.
+- `local` 프로파일은 **localhost DB 에만** 연결할 수 있습니다. `DB_HOST` 등에 원격(운영 RDS 등) 주소가 있으면 Flyway 실행 전에 기동이 거부됩니다. (꼭 필요하면 `APP_LOCAL_DB_ALLOW_REMOTE=true`)
 - `local` 프로파일의 DB 기본값은 `localhost:3306/speakfit`, 사용자 `root`, 비밀번호 `password` 입니다. 다르면 아래 `.env` 의 `DB_*` 로 지정합니다.
 
 ### 3) Create .env File
