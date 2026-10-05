@@ -40,6 +40,7 @@ out/
 ### 환경 파일
 .env
 .env.*
+!.env.*.example
 uploads/
 secrets/
 *.service-account.json

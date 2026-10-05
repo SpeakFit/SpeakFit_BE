@@ -1,19 +1,17 @@
+# 공통 설정. 프로파일(local / prod)별 차이는 application-{profile}.yaml 에서만 정의한다.
+# 사용하는 환경변수 목록과 예시는 .env.spring.example 참고.
 spring:
   application:
     name: speakfit-backend
 
-  datasource:
-    url: ${DB_URL}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
-    driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
-      ddl-auto: update
-    show-sql: true
+      # 스키마 자동 변경 방식. (Flyway 도입 후 운영은 validate 로 전환 예정)
+      ddl-auto: ${JPA_DDL_AUTO:update}
+    show-sql: false
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false
         dialect: org.hibernate.dialect.MySQLDialect
 
   jackson:
@@ -31,13 +29,25 @@ logging:
   level:
     root: info
 
+# 헬스체크: /actuator/health (DB 연결 상태 포함). 그 외 actuator 엔드포인트는 노출하지 않는다.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+
 cloud:
   aws:
     credentials:
       access-key: ${AWS_ACCESS_KEY}
       secret-key: ${AWS_SECRET_KEY}
     region:
-      static: ap-northeast-2
+      static: ${AWS_REGION:ap-northeast-2}
     s3:
       bucket: ${AWS_S3_BUCKET}
     stack:
@@ -45,20 +55,21 @@ cloud:
 
 app:
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,https://speak-fit-fe.vercel.app,https://api.speakfit.org}
+    # 기본값은 로컬 개발용. 운영은 application-prod.yaml 에서 반드시 환경변수로 지정한다.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
     allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:}
   cookie:
     secure: false
   ai:
     base-url: ${AI_BASE_URL:http://localhost:5000}
     response-timeout-seconds: ${AI_RESPONSE_TIMEOUT_SECONDS:900}
-    auto-start: ${AI_AUTO_START:true}
   websocket:
     base-url: ${WS_BASE_URL:ws://localhost:5000/ws/practice}
   voice:
     min-file-size-bytes: ${VOICE_MIN_FILE_SIZE_BYTES:5120}
 
 jwt:
+  # 최소 32바이트(256bit) 이상이어야 한다. Python 분석 서버와 같은 값을 사용한다.
   secret: ${JWT_SECRET}
   access-token-exp-seconds: ${JWT_ACCESS_EXP_SECONDS:3600}
   refresh-token-exp-seconds: ${JWT_REFRESH_EXP_SECONDS:1209600}
