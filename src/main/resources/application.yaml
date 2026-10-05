@@ -4,10 +4,14 @@ spring:
   application:
     name: speakfit-backend
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
   jpa:
     hibernate:
-      # 스키마 자동 변경 방식. (Flyway 도입 후 운영은 validate 로 전환 예정)
-      ddl-auto: ${JPA_DDL_AUTO:update}
+      # 스키마는 Flyway(db/migration)가 관리한다. Hibernate 는 엔티티-스키마 일치 여부만 검증한다.
+      ddl-auto: ${JPA_DDL_AUTO:validate}
     show-sql: false
     properties:
       hibernate:
