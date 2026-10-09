@@ -178,12 +178,12 @@ public class ScriptServiceImpl implements ScriptService {
             List<GetScriptDetailRes.PptSlideRes> slideResList = script.getPptSlides().stream()
                     .map(slide -> GetScriptDetailRes.PptSlideRes.builder()
                             .page(slide.getSlideIndex())
-                            .imageUrl(slide.getImageUrl())
+                            .imageUrl(s3Service.presignGet(slide.getImageUrl()))
                             .build())
                     .toList();
 
             pptInfo = GetScriptDetailRes.PptInfoRes.builder()
-                    .pptUrl(script.getPptUrl())
+                    .pptUrl(s3Service.presignGet(script.getPptUrl()))
                     .totalSlides(script.getTotalSlides())
                     .slides(slideResList)
                     .build();
@@ -446,12 +446,12 @@ public class ScriptServiceImpl implements ScriptService {
                 .sorted(java.util.Comparator.comparing(com.speakfit.backend.domain.script.entity.PptSlide::getSlideIndex))
                 .map(slide -> UploadPptRes.PptSlideRes.builder()
                         .page(slide.getSlideIndex())
-                        .imageUrl(slide.getImageUrl())
+                        .imageUrl(s3Service.presignGet(slide.getImageUrl()))
                         .build())
                 .toList();
 
         UploadPptRes.PptInfoRes pptInfo = UploadPptRes.PptInfoRes.builder()
-                .sourcePptUrl(script.getPptUrl())
+                .sourcePptUrl(s3Service.presignGet(script.getPptUrl()))
                 .totalSlides(script.getTotalSlides() != null ? script.getTotalSlides() : slides.size())
                 .slides(slides)
                 .build();

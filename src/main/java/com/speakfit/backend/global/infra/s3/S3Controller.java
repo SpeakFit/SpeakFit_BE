@@ -38,7 +38,7 @@ public class S3Controller {
         return ApiResponse.onSuccess(
                 SuccessCode.CREATED,
                 UploadFileRes.builder()
-                        .fileUrl(fileUrl)
+                        .fileUrl(s3Service.presignGet(fileUrl))
                         .directory(directory)
                         .originalFileName(file.getOriginalFilename())
                         .contentType(file.getContentType())

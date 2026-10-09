@@ -1,5 +1,6 @@
 package com.speakfit.backend.global.infra.s3;
 
+import com.amazonaws.HttpMethod;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.model.DeleteObjectsRequest;
 import com.amazonaws.services.s3.model.ListObjectsV2Request;
@@ -9,6 +10,7 @@ import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import com.speakfit.backend.global.apiPayload.response.code.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -18,10 +20,12 @@ import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
+import java.util.Date;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class S3Service {
@@ -35,6 +39,10 @@ public class S3Service {
 
     @Value("${cloud.aws.s3.bucket}")
     private String bucket;
+
+    /** 읽기용 서명 URL 의 유효 시간(초). 연습 화면을 오래 열어 두는 경우를 고려해 기본 1시간. */
+    @Value("${app.s3.presign-expire-seconds:3600}")
+    private long presignExpireSeconds = 3600;
 
     public String upload(MultipartFile file) throws IOException {
         return upload(file, "uploads");
@@ -76,6 +84,55 @@ public class S3Service {
             key = key.substring(bucket.length() + 1);
         }
         return key.isBlank() ? null : key;
+    }
+
+    /**
+     * 비공개 버킷의 파일을 브라우저가 읽을 수 있도록 유효 시간이 있는 서명 URL 로 바꾼다.
+     * <ul>
+     *   <li>이 버킷의 오브젝트 URL 또는 오브젝트 키 → 서명 URL</li>
+     *   <li>null/빈 값, 다른 곳의 URL → 그대로 반환</li>
+     * </ul>
+     * 서명은 로컬 계산이라 S3 호출이 없으며, 실패하면 원래 값을 돌려준다(응답 전체가 실패하지 않도록).
+     */
+    public String presignGet(String urlOrKey) {
+        if (urlOrKey == null || urlOrKey.isBlank()) {
+            return urlOrKey;
+        }
+
+        String key;
+        if (urlOrKey.startsWith("http://") || urlOrKey.startsWith("https://")) {
+            if (!isOwnBucketUrl(urlOrKey)) {
+                return urlOrKey;
+            }
+            key = extractObjectKey(urlOrKey);
+        } else {
+            key = urlOrKey.replaceAll("^/+", "");
+        }
+
+        if (key == null || key.isBlank()) {
+            return urlOrKey;
+        }
+
+        try {
+            Date expiration = new Date(System.currentTimeMillis() + presignExpireSeconds * 1000);
+            return amazonS3.generatePresignedUrl(bucket, key, expiration, HttpMethod.GET).toString();
+        } catch (Exception e) {
+            log.warn("S3 서명 URL 생성 실패 - key: {}", key, e);
+            return urlOrKey;
+        }
+    }
+
+    private boolean isOwnBucketUrl(String url) {
+        URI uri = URI.create(url);
+        String host = uri.getHost();
+        if (host == null) {
+            return false;
+        }
+        if (host.startsWith(bucket + ".s3")) {
+            return true;
+        }
+        String path = uri.getRawPath() == null ? "" : uri.getRawPath();
+        return host.startsWith("s3") && path.startsWith("/" + bucket + "/");
     }
 
     /** prefix 아래의 모든 오브젝트를 삭제한다. (예: ppt/10/ — 대본 삭제, 변환 시도 정리) */

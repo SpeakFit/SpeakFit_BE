@@ -117,11 +117,11 @@ public class PracticeServiceImpl implements PracticeService {
                         .styleType(style.getStyleType())
                         .displayName(style.getDisplayName())
                         .description(style.getDescription())
-                        .guideAudioUrl(
+                        .guideAudioUrl(s3Service.presignGet(
                                 user.getGender() == com.speakfit.backend.domain.user.enums.Gender.FEMALE
                                         ? style.getSampleAudioUrlFemale()
                                         : style.getSampleAudioUrlMale()
-                        )
+                        ))
                         .targetMetrics(toInputPracticeTargetMetrics(
                                 targetMetricCalculator.calculate(
                                         user,
@@ -305,7 +305,7 @@ public class PracticeServiceImpl implements PracticeService {
                 .stream()
                 .map(slide -> StartPracticeRes.SlideRes.builder()
                         .slideIndex(slide.getSlideIndex())
-                        .imageUrl(slide.getImageUrl())
+                        .imageUrl(s3Service.presignGet(slide.getImageUrl()))
                         .build())
                 .toList();
 
@@ -402,7 +402,7 @@ public class PracticeServiceImpl implements PracticeService {
         return StopPracticeRes.Response.builder()
                 .practiceId(practiceRecord.getId())
                 .status(Status.ANALYZING)
-                .audioUrl(audioUrl)
+                .audioUrl(s3Service.presignGet(audioUrl))
                 .build();
     }
 
@@ -423,7 +423,7 @@ public class PracticeServiceImpl implements PracticeService {
             return GetPracticeReportRes.Response.builder()
                     .practiceId(record.getId())
                     .status(record.getStatus())
-                    .audioUrl(record.getAudioUrl())
+                    .audioUrl(s3Service.presignGet(record.getAudioUrl()))
                     .time(record.getTime())
                     .createdAt(record.getCreatedAt())
                     .message(record.getStatus() == Status.ANALYZING ? "분석 중입니다." : "분석 실패")
@@ -450,7 +450,7 @@ public class PracticeServiceImpl implements PracticeService {
         return GetPracticeReportRes.Response.builder()
                 .practiceId(record.getId())
                 .status(record.getStatus())
-                .audioUrl(record.getAudioUrl())
+                .audioUrl(s3Service.presignGet(record.getAudioUrl()))
                 .time(record.getTime())
                 .createdAt(record.getCreatedAt())
                 .audienceType(record.getAudienceType())

@@ -8,6 +8,7 @@ import com.speakfit.backend.domain.user.enums.Gender;
 import com.speakfit.backend.domain.user.repository.UserRepository;
 import com.speakfit.backend.domain.script.exception.ScriptErrorCode;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
+import com.speakfit.backend.global.infra.s3.S3Service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +20,7 @@ public class SpeechStyleQueryServiceImpl implements SpeechStyleQueryService {
 
     private final SpeechStyleRepository speechStyleRepository;
     private final UserRepository userRepository;
+    private final S3Service s3Service;
 
     // 스피치 스타일 조회 (사용자 성별에 맞는 샘플 오디오 URL 반환)
     @Override
@@ -40,11 +42,11 @@ public class SpeechStyleQueryServiceImpl implements SpeechStyleQueryService {
                         .styleType(s.getStyleType())
                         .displayName(s.getDisplayName())
                         .description(s.getDescription())
-                        .sampleAudioUrl(
+                        .sampleAudioUrl(s3Service.presignGet(
                                 gender == Gender.FEMALE
                                         ? s.getSampleAudioUrlFemale()
                                         : s.getSampleAudioUrlMale()
-                        )
+                        ))
                         .build())
                 .toList();
 
