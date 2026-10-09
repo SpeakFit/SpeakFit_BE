@@ -64,6 +64,11 @@ CREATE DATABASE speakfit CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 - `local` 프로파일은 **localhost DB 에만** 연결할 수 있습니다. `DB_HOST` 등에 원격(운영 RDS 등) 주소가 있으면 Flyway 실행 전에 기동이 거부됩니다. (꼭 필요하면 `APP_LOCAL_DB_ALLOW_REMOTE=true`)
 - `local` 프로파일의 DB 기본값은 `localhost:3306/speakfit`, 사용자 `root`, 비밀번호 `password` 입니다. 다르면 아래 `.env` 의 `DB_*` 로 지정합니다.
 
+### PPT 업로드와 S3
+- PPT 원본과 변환된 슬라이드 이미지는 모두 **S3** 의 `ppt/{scriptId}/attempts/{uuid}/` 아래에 저장됩니다. (서버 로컬 `uploads/` 폴더는 쓰지 않습니다.)
+- 스프링이 원본을 S3 에 올리고, 분석 서버(`POST /ppt/convert`)에는 **S3 URL 과 결과 prefix** 만 전달합니다. 분석 서버가 S3 에서 내려받아 변환하므로 두 서버가 같은 디스크를 공유하지 않아도 됩니다.
+- 분석 서버에는 LibreOffice(`soffice`)가 필요하고, 스프링과 같은 버킷에 접근할 수 있어야 합니다. (`AWS_S3_BUCKET`, `AWS_REGION`, 키 또는 IAM 역할)
+
 ### 3) Create .env File
 
 `.env.spring.example` 을 프로젝트 루트에 `.env` 로 복사해서 값을 채웁니다. (`.env` 는 Git 에 올라가지 않습니다.)

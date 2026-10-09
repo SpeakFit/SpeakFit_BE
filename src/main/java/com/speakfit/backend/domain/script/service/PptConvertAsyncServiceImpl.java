@@ -4,43 +4,45 @@ import com.speakfit.backend.domain.script.dto.res.PptConvertRes;
 import com.speakfit.backend.domain.script.dto.res.UploadPptRes;
 import com.speakfit.backend.domain.script.exception.ScriptErrorCode;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
+import com.speakfit.backend.global.infra.s3.S3Service;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * PPT 변환 비동기 처리.
+ * 스프링과 분석 서버가 서로 다른 서버일 수 있으므로 파일은 S3 로만 주고받는다.
+ * (원본은 호출 전에 S3 에 올라가 있고, 분석 서버가 내려받아 변환한 슬라이드를 S3 에 올린다.)
+ */
 @Slf4j
 @Service
 public class PptConvertAsyncServiceImpl implements PptConvertAsyncService {
 
-    private static final Path UPLOAD_ROOT_PATH = Paths.get("uploads").toAbsolutePath().normalize();
-
     private final ScriptTxService scriptTxService;
     private final WebClient webClient;
+    private final S3Service s3Service;
 
     public PptConvertAsyncServiceImpl(
             ScriptTxService scriptTxService,
-            @Qualifier("webClient") WebClient webClient
+            @Qualifier("webClient") WebClient webClient,
+            S3Service s3Service
     ) {
         this.scriptTxService = scriptTxService;
         this.webClient = webClient;
+        this.s3Service = s3Service;
     }
 
     @Override
     @Async("pptConvertExecutor")
-    public void convertPptAsync(Long scriptId, Long userId, String sourcePptPath, Path uploadDirPath, String previousPptUrl) {
+    public void convertPptAsync(Long scriptId, Long userId, String sourcePptUrl, String attemptPrefix, String previousPptUrl) {
         try {
-            PptConvertRes.Response convertResponse = requestPptConvert(sourcePptPath, getPptOutputDir(uploadDirPath));
-            // Python이 이미 S3 URL을 반환하므로 toUploadUrl() 변환 불필요
+            PptConvertRes.Response convertResponse = requestPptConvert(sourcePptUrl, attemptPrefix);
             List<UploadPptRes.PptSlideRes> slides = convertResponse.getSlides().stream()
                     .map(slide -> UploadPptRes.PptSlideRes.builder()
                             .page(slide.getPage())
@@ -48,13 +50,14 @@ public class PptConvertAsyncServiceImpl implements PptConvertAsyncService {
                             .build())
                     .toList();
 
-            scriptTxService.savePptSuccess(scriptId, userId, convertResponse.getSourcePptUrl(), convertResponse.getTotalSlides(), slides);
-            // 변환 완료 후 로컬 PPTX 디렉토리 삭제 (파일은 S3에 보관)
-            deleteDirectoryQuietly(uploadDirPath);
-            deletePreviousPptAttemptQuietly(previousPptUrl, uploadDirPath);
+            String savedSourceUrl = convertResponse.getSourcePptUrl() != null
+                    ? convertResponse.getSourcePptUrl()
+                    : sourcePptUrl;
+            scriptTxService.savePptSuccess(scriptId, userId, savedSourceUrl, convertResponse.getTotalSlides(), slides);
+            deletePreviousAttemptQuietly(previousPptUrl, attemptPrefix);
         } catch (Exception e) {
             log.error("PPT 변환 비동기 처리 실패 - scriptId: {}", scriptId, e);
-            deleteDirectoryQuietly(uploadDirPath);
+            deletePrefixQuietly(attemptPrefix);
             try {
                 scriptTxService.markPptFailed(scriptId, userId, "PPT slide conversion failed.");
             } catch (Exception updateException) {
@@ -63,10 +66,10 @@ public class PptConvertAsyncServiceImpl implements PptConvertAsyncService {
         }
     }
 
-    private PptConvertRes.Response requestPptConvert(String sourcePptUrl, String outputDir) {
+    private PptConvertRes.Response requestPptConvert(String sourcePptUrl, String attemptPrefix) {
         Map<String, Object> body = new HashMap<>();
-        body.put("pptPath", sourcePptUrl);
-        body.put("outputDir", outputDir);
+        body.put("pptUrl", sourcePptUrl);
+        body.put("outputPrefix", attemptPrefix);
 
         try {
             PptConvertRes.Response response = webClient.post()
@@ -89,78 +92,21 @@ public class PptConvertAsyncServiceImpl implements PptConvertAsyncService {
         }
     }
 
-    private String getPptOutputDir(Path uploadDirPath) {
-        return uploadDirPath.resolve("converted").normalize().toString();
-    }
-
-    private Path toStoragePath(String uploadUrl) {
-        if (uploadUrl == null || uploadUrl.isBlank()) {
-            return null;
-        }
-
-        String normalizedUrl = uploadUrl.replace("\\", "/");
-
-        // S3 URL은 로컬 파일이 없으므로 null 반환 (삭제 불필요)
-        if (normalizedUrl.startsWith("http://") || normalizedUrl.startsWith("https://")) {
-            return null;
-        }
-
-        if (normalizedUrl.startsWith("/uploads/")) {
-            return UPLOAD_ROOT_PATH.resolve(normalizedUrl.substring("/uploads/".length())).normalize();
-        }
-
-        if (normalizedUrl.startsWith("uploads/")) {
-            return UPLOAD_ROOT_PATH.resolve(normalizedUrl.substring("uploads/".length())).normalize();
-        }
-
-        return Paths.get(uploadUrl).toAbsolutePath().normalize();
-    }
-
-    private void deleteDirectoryQuietly(Path directoryPath) {
-        if (directoryPath == null || !Files.exists(directoryPath)) {
+    /** 새 변환이 성공하면 이전 변환 시도(원본과 슬라이드)를 S3 에서 지운다. */
+    private void deletePreviousAttemptQuietly(String previousPptUrl, String currentAttemptPrefix) {
+        String previousPrefix = PptS3Keys.attemptPrefixOf(s3Service.extractObjectKey(previousPptUrl));
+        if (previousPrefix == null || previousPrefix.equals(currentAttemptPrefix)) {
             return;
         }
 
+        deletePrefixQuietly(previousPrefix);
+    }
+
+    private void deletePrefixQuietly(String prefix) {
         try {
-            try (var paths = Files.walk(directoryPath)) {
-                paths.sorted(Comparator.reverseOrder())
-                        .forEach(path -> {
-                            try {
-                                Files.deleteIfExists(path);
-                            } catch (Exception e) {
-                                log.warn("File cleanup failed - path: {}", path, e);
-                            }
-                        });
-            }
+            s3Service.deleteByPrefix(prefix);
         } catch (Exception e) {
-            log.warn("PPT upload directory cleanup failed - path: {}", directoryPath, e);
+            log.warn("PPT S3 파일 정리 실패 - prefix: {}", prefix, e);
         }
-    }
-
-    private void deletePreviousPptAttemptQuietly(String previousPptUrl, Path currentUploadDirPath) {
-        if (previousPptUrl == null || previousPptUrl.isBlank()) {
-            return;
-        }
-
-        Path previousFilePath = toStoragePath(previousPptUrl);
-        if (previousFilePath == null) {
-            return;
-        }
-
-        Path previousUploadDirPath = previousFilePath.getParent();
-        if (previousUploadDirPath == null || previousUploadDirPath.getParent() == null) {
-            return;
-        }
-
-        Path attemptsDirPath = previousUploadDirPath.getParent();
-        if (!"attempts".equals(attemptsDirPath.getFileName().toString())) {
-            return;
-        }
-
-        if (previousUploadDirPath.equals(currentUploadDirPath)) {
-            return;
-        }
-
-        deleteDirectoryQuietly(previousUploadDirPath);
     }
 }
