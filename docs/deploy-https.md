@@ -80,6 +80,22 @@ SPRING_PROFILES_ACTIVE=prod
 VITE_API_BASE_URL=https://api.speakfit.org
 ```
 
+## Python analysis server on a separate EC2 (WebSocket proxy)
+
+When the Python analysis server runs on its own EC2, Nginx on the Spring EC2 forwards only `/ws/` to it.
+Put the Python server's **private IP** into the `upstream` block of `config/nginx/speakfit-api.conf`:
+
+```bash
+sudo sed -i 's/PYTHON_PRIVATE_IP/10.0.1.25/' /etc/nginx/sites-available/speakfit-api   # use the real private IP
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+- Python EC2 security group: inbound `5000/tcp` **only from the Spring EC2 security group** (never from the internet).
+- Spring `.env`: `AI_BASE_URL=http://<python private IP>:5000`, `WS_BASE_URL=wss://api.speakfit.org/ws/practice`.
+- Check the WebSocket path end to end: the browser should open `wss://api.speakfit.org/ws/practice/<id>?token=...`
+  and the Python log should show `WebSocket /ws/practice/<id> [accepted]`.
+- See `docs/deploy-containers.md` for the container layout of both servers.
+
 ## AWS ALB + ACM Alternative
 
 If using AWS managed TLS:
