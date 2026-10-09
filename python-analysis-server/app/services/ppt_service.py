@@ -44,6 +44,39 @@ def normalize_ppt_output_prefix(output_prefix: str) -> str:
     return prefix
 
 
+def convert_ppt_to_pdf(ppt_path: str):
+    """
+    PPT/PPTX를 PDF로 변환합니다.
+    임시 디렉토리에 PDF를 생성하고 (pdf_path, temp_dir) 튜플을 반환합니다.
+    호출 측에서 작업 완료 후 temp_dir을 반드시 삭제해야 합니다.
+    """
+    libreoffice_path = find_libreoffice()
+    if not libreoffice_path:
+        raise HTTPException(status_code=503, detail="LibreOffice is not installed")
+
+    temp_dir = tempfile.mkdtemp(prefix="speakfit-ppt-")
+    profile_dir = tempfile.mkdtemp(prefix="libreoffice-profile-")
+    command = [
+        libreoffice_path, f"-env:UserInstallation={to_file_uri(profile_dir)}",
+        "--headless", "--nologo", "--norestore", "--convert-to", "pdf",
+        "--outdir", temp_dir, ppt_path,
+    ]
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout, stderr = process.communicate(timeout=120)
+        if process.returncode != 0:
+            raise HTTPException(status_code=500, detail="Conversion failed")
+    except subprocess.TimeoutExpired:
+        process.kill()
+        raise HTTPException(status_code=504, detail="Conversion timed out")
+    finally:
+        shutil.rmtree(profile_dir, ignore_errors=True)
+
+    base_name = os.path.splitext(os.path.basename(ppt_path))[0]
+    pdf_path = os.path.join(temp_dir, base_name + ".pdf")
+    return pdf_path, temp_dir
+
+
 def render_pdf_to_images(pdf_path: str, s3_key_prefix: str) -> list:
     """
     PDF를 슬라이드 이미지로 변환한 후 S3에 업로드합니다.
