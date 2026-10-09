@@ -48,8 +48,10 @@ management:
 cloud:
   aws:
     credentials:
-      access-key: ${AWS_ACCESS_KEY}
-      secret-key: ${AWS_SECRET_KEY}
+      # 로컬 개발에서만 지정한다. 비워 두면 EC2 의 IAM 역할 등 기본 자격 증명 체인을 사용한다.
+      access-key: ${AWS_ACCESS_KEY:}
+      secret-key: ${AWS_SECRET_KEY:}
+      use-default-aws-credentials-chain: true
     region:
       static: ${AWS_REGION:ap-northeast-2}
     s3:

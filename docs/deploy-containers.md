@@ -72,5 +72,5 @@ curl -s http://127.0.0.1:5000/                  # 파이썬: {"message":"SpeakFi
 
 ## 8. 아직 남은 것
 
-- Spring 이 AWS 키를 환경변수(`AWS_ACCESS_KEY`/`AWS_SECRET_KEY`)로 받는다. EC2 IAM 역할로 바꾸는 작업은 `feat/aws-iam-role-credentials`.
+- 운영 서버는 AWS 키 없이 EC2 IAM 역할로 S3 에 접근한다. 역할과 IMDS hop limit(2) 설정은 `docs/aws-iam-roles.md` 참고.
 - 이미지 자동 빌드와 ECR 업로드는 `feat/ci-cd-ecr`.
