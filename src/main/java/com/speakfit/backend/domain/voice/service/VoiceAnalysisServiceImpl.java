@@ -173,7 +173,8 @@ public class VoiceAnalysisServiceImpl implements VoiceAnalysisService {
             if (isTimeoutException(e)) {
                 throw new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_TIMEOUT);
             }
-            throw new VoiceException(VoiceExceptionStatus.VOICE_DATA_INSUFFICIENT);
+            // 분석 서버에 연결하지 못한 것은 사용자의 녹음 문제가 아니라 서버 측 장애다.
+            throw new VoiceException(VoiceExceptionStatus.VOICE_ANALYSIS_FAILED);
         } catch (RuntimeException e) {
             if (e instanceof VoiceException) {
                 throw e;
