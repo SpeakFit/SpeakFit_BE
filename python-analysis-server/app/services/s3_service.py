@@ -32,3 +32,15 @@ def upload_to_s3(local_path: str, s3_key: str, content_type: str = "image/png") 
     except (BotoCoreError, ClientError) as e:
         print(f"[Python ERROR] S3 upload failed - key: {s3_key}, error: {e}")
         raise HTTPException(status_code=500, detail=f"S3 upload failed: {str(e)}")
+
+
+def download_from_s3(s3_key: str, local_path: str) -> None:
+    """S3 오브젝트를 로컬 경로로 내려받는다. (스프링과 파이썬이 서로 다른 서버여도 파일을 주고받기 위함)"""
+    if not S3_BUCKET_NAME:
+        raise HTTPException(status_code=500, detail="S3 bucket name is not configured")
+
+    try:
+        get_s3_client().download_file(S3_BUCKET_NAME, s3_key, local_path)
+    except (BotoCoreError, ClientError) as e:
+        print(f"[Python ERROR] S3 download failed - key: {s3_key}, error: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to download file from S3: {str(e)}")

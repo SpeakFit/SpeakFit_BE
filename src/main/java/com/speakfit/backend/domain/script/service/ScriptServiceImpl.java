@@ -20,6 +20,7 @@ import com.speakfit.backend.domain.script.repository.ScriptRepository;
 import com.speakfit.backend.domain.practice.service.AiAnalysisService;
 import com.speakfit.backend.domain.user.repository.UserRepository;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
+import com.speakfit.backend.global.infra.s3.S3Service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -31,16 +32,11 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.multipart.MultipartFile;
 import reactor.core.publisher.Flux;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @Service
 @Slf4j
@@ -56,6 +52,7 @@ public class ScriptServiceImpl implements ScriptService {
     /** [STEP-A] SSE 스트리밍 전용 — responseTimeout 5분 설정 */
     private final WebClient streamingWebClient;
     private final PptConvertAsyncService pptConvertAsyncService;
+    private final S3Service s3Service;
 
     public ScriptServiceImpl(
             ScriptRepository scriptRepository,
@@ -65,7 +62,8 @@ public class ScriptServiceImpl implements ScriptService {
             UserRepository userRepository,
             @Qualifier("webClient") WebClient webClient,
             @Qualifier("streamingWebClient") WebClient streamingWebClient,
-            PptConvertAsyncService pptConvertAsyncService) {
+            PptConvertAsyncService pptConvertAsyncService,
+            S3Service s3Service) {
         this.scriptRepository = scriptRepository;
         this.practiceRepository = practiceRepository;
         this.aiAnalysisService = aiAnalysisService;
@@ -74,6 +72,7 @@ public class ScriptServiceImpl implements ScriptService {
         this.webClient = webClient;
         this.streamingWebClient = streamingWebClient;
         this.pptConvertAsyncService = pptConvertAsyncService;
+        this.s3Service = s3Service;
     }
 
     // [STEP-B] 발표 대본 추가 기능 구현 — 낭독기호 동기 처리로 즉시 응답 보장
@@ -218,7 +217,7 @@ public class ScriptServiceImpl implements ScriptService {
         practiceRepository.deleteAllByScriptId(scriptId);
 
         scriptRepository.delete(script);
-        deleteDirectoryQuietly(Paths.get("uploads/ppt/" + scriptId).toAbsolutePath().normalize());
+        deletePptFilesQuietly(PptS3Keys.scriptPrefix(scriptId));
         return DeleteScriptRes.Response.builder()
                 .id(scriptId)
                 .build();
@@ -335,17 +334,17 @@ public class ScriptServiceImpl implements ScriptService {
         }
 
         String previousPptUrl = script.getPptUrl();
-        Path uploadDirPath = getPptAttemptDirPath(scriptId);
+        String attemptPrefix = PptS3Keys.newAttemptPrefix(scriptId);
         boolean processingMarked = false;
 
         try {
-            String sourcePptUrl = savePptFile(scriptId, file, uploadDirPath);
+            String sourcePptUrl = savePptFile(scriptId, file, attemptPrefix);
             scriptTxService.markPptProcessing(scriptId, userId);
             processingMarked = true;
             try {
-                pptConvertAsyncService.convertPptAsync(scriptId, userId, sourcePptUrl, uploadDirPath, previousPptUrl);
+                pptConvertAsyncService.convertPptAsync(scriptId, userId, sourcePptUrl, attemptPrefix, previousPptUrl);
             } catch (TaskRejectedException e) {
-                deleteDirectoryQuietly(uploadDirPath);
+                // S3 파일 정리는 아래 CustomException 처리에서 한 번만 한다.
                 scriptTxService.markPptFailed(scriptId, userId, "PPT conversion queue is full.");
                 throw new CustomException(ScriptErrorCode.SCRIPT_PPT_CONVERT_FAILED);
             }
@@ -356,10 +355,10 @@ public class ScriptServiceImpl implements ScriptService {
                     .message("PPT 변환을 시작했습니다.")
                     .build();
         } catch (CustomException e) {
-            deleteDirectoryQuietly(uploadDirPath);
+            deletePptFilesQuietly(attemptPrefix);
             throw e;
         } catch (Exception e) {
-            deleteDirectoryQuietly(uploadDirPath);
+            deletePptFilesQuietly(attemptPrefix);
             if (processingMarked) {
                 scriptTxService.markPptFailed(scriptId, userId, "PPT conversion task could not be started.");
             }
@@ -368,8 +367,8 @@ public class ScriptServiceImpl implements ScriptService {
         }
     }
 
-    // PPT 파일 저장 기능 구현
-    private String savePptFile(Long scriptId, MultipartFile file, Path uploadDirPath) {
+    // PPT 원본 파일을 S3 에 저장하고 URL 을 반환 (분석 서버가 이 URL 로 내려받아 변환한다)
+    private String savePptFile(Long scriptId, MultipartFile file, String attemptPrefix) {
         if (file == null || file.isEmpty()) {
             throw new CustomException(ScriptErrorCode.SCRIPT_PPT_EMPTY_FILE);
         }
@@ -380,13 +379,7 @@ public class ScriptServiceImpl implements ScriptService {
         }
 
         try {
-            if (!Files.exists(uploadDirPath)) {
-                Files.createDirectories(uploadDirPath);
-            }
-
-            Path filePath = uploadDirPath.resolve("source" + extension).normalize();
-            Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
-            return filePath.toString();
+            return s3Service.upload(file, attemptPrefix);
         } catch (Exception e) {
             log.error("PPT 파일 저장 실패 - scriptId: {}", scriptId, e);
             throw new CustomException(ScriptErrorCode.SCRIPT_PPT_UPLOAD_FAILED);
@@ -406,11 +399,6 @@ public class ScriptServiceImpl implements ScriptService {
         }
 
         return cleanFileName.substring(dotIndex).toLowerCase();
-    }
-
-    // PPT 변환 출력 디렉터리 경로 생성 기능 구현
-    private Path getPptAttemptDirPath(Long scriptId) {
-        return Paths.get("uploads/ppt/" + scriptId + "/attempts/" + UUID.randomUUID()).toAbsolutePath().normalize();
     }
 
     // PPT 변환 상태 확인 기능 구현
@@ -476,25 +464,12 @@ public class ScriptServiceImpl implements ScriptService {
                 .build();
     }
 
-    // 디렉터리 삭제 기능 구현
-    private void deleteDirectoryQuietly(Path directoryPath) {
-        if (directoryPath == null || !Files.exists(directoryPath)) {
-            return;
-        }
-
+    // PPT 관련 S3 파일 삭제 (실패해도 요청 처리에는 영향을 주지 않는다)
+    private void deletePptFilesQuietly(String prefix) {
         try {
-            try (var paths = Files.walk(directoryPath)) {
-                paths.sorted(Comparator.reverseOrder())
-                        .forEach(path -> {
-                            try {
-                                Files.deleteIfExists(path);
-                            } catch (Exception e) {
-                                log.warn("파일 정리 실패 - path: {}", path, e);
-                            }
-                        });
-            }
+            s3Service.deleteByPrefix(prefix);
         } catch (Exception e) {
-            log.warn("PPT 업로드 임시 디렉터리 정리 실패 - path: {}", directoryPath, e);
+            log.warn("PPT S3 파일 정리 실패 - prefix: {}", prefix, e);
         }
     }
 

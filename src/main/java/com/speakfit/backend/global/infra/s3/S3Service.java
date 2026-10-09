@@ -1,7 +1,11 @@
 package com.speakfit.backend.global.infra.s3;
 
 import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.model.DeleteObjectsRequest;
+import com.amazonaws.services.s3.model.ListObjectsV2Request;
+import com.amazonaws.services.s3.model.ListObjectsV2Result;
 import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import com.speakfit.backend.global.apiPayload.response.code.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -10,7 +14,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -47,6 +55,55 @@ public class S3Service {
         amazonS3.putObject(bucket, objectKey, file.getInputStream(), metadata);
 
         return amazonS3.getUrl(bucket, objectKey).toString();
+    }
+
+    /**
+     * 이 서비스가 돌려주는 오브젝트 URL(가상 호스트/경로 스타일)에서 오브젝트 키를 뽑는다.
+     * http(s) URL 이 아니면 null.
+     */
+    public String extractObjectKey(String url) {
+        if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) {
+            return null;
+        }
+
+        String path = URI.create(url).getRawPath();
+        if (path == null) {
+            return null;
+        }
+
+        String key = URLDecoder.decode(path.replaceAll("^/+", ""), StandardCharsets.UTF_8);
+        if (key.startsWith(bucket + "/")) {
+            key = key.substring(bucket.length() + 1);
+        }
+        return key.isBlank() ? null : key;
+    }
+
+    /** prefix 아래의 모든 오브젝트를 삭제한다. (예: ppt/10/ — 대본 삭제, 변환 시도 정리) */
+    public void deleteByPrefix(String prefix) {
+        if (prefix == null || prefix.isBlank() || prefix.replace("/", "").isBlank()) {
+            throw new IllegalArgumentException("S3 삭제 prefix 가 비어 있습니다.");
+        }
+
+        String normalized = prefix.replaceAll("^/+", "");
+        if (!normalized.endsWith("/")) {
+            normalized = normalized + "/";
+        }
+
+        ListObjectsV2Request request = new ListObjectsV2Request()
+                .withBucketName(bucket)
+                .withPrefix(normalized);
+        ListObjectsV2Result result;
+        do {
+            result = amazonS3.listObjectsV2(request);
+            List<DeleteObjectsRequest.KeyVersion> keys = result.getObjectSummaries().stream()
+                    .map(S3ObjectSummary::getKey)
+                    .map(DeleteObjectsRequest.KeyVersion::new)
+                    .toList();
+            if (!keys.isEmpty()) {
+                amazonS3.deleteObjects(new DeleteObjectsRequest(bucket).withKeys(keys).withQuiet(true));
+            }
+            request.setContinuationToken(result.getNextContinuationToken());
+        } while (result.isTruncated());
     }
 
     private void validateFile(MultipartFile file) {

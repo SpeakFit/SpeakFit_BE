@@ -59,8 +59,9 @@ class UpdateScriptRequest(BaseModel):
     keywords: Optional[str] = None
 
 class ConvertPptRequest(BaseModel):
-    pptPath: str
-    outputDir: str
+    # 스프링이 S3 에 올린 원본 파일의 URL 과, 변환 결과를 저장할 S3 prefix (예: ppt/10/attempts/<uuid>)
+    pptUrl: str
+    outputPrefix: str
 
 # [STEP 9] /feedback/summary 엔드포인트 전용 요청 모델
 # Java AiFeedbackService.PythonFeedbackReq 필드와 1:1 대응

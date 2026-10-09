@@ -34,7 +34,8 @@ from app.services.ai_service import (
     generate_script_ai_stream, update_script_ai_stream,  # [STEP-A] SSE streaming
 )
 from app.services.ppt_service import (
-    ensure_within_upload_root, convert_ppt_to_pdf, render_pdf_to_images
+    convert_ppt_to_pdf, render_pdf_to_images,
+    resolve_ppt_s3_key, normalize_ppt_output_prefix
 )
 from app.services.s3_service import upload_to_s3
 # [STEP 7] 공유 임계값 import — voice_service.py와 동일 소스 참조
@@ -984,47 +985,38 @@ async def convert_ppt(req: ConvertPptRequest):
 
 
 def convert_ppt_sync(req: ConvertPptRequest):
-    # 로컬 PPTX 경로 (Docker 경로 → 호스트 경로 변환)
-    ppt_path = ensure_within_upload_root(req.pptPath, must_exist=True)
+    """S3 에 있는 원본 PPT 를 내려받아 슬라이드 이미지로 변환하고, 결과 이미지를 S3 에 올린다.
 
-    # S3 키 prefix 생성: pptPath에서 /uploads/ 이후 부모 경로 추출
-    # 예) /app/uploads/ppt/10/attempts/uuid/file.pptx → ppt/10/attempts/uuid
-    normalized_ppt = req.pptPath.replace("\\", "/")
-    idx = normalized_ppt.find("/uploads/")
-    if idx >= 0:
-        relative = normalized_ppt[idx + len("/uploads/"):]        # ppt/10/attempts/uuid/file.pptx
-        s3_parent = "/".join(relative.split("/")[:-1])             # ppt/10/attempts/uuid
-    else:
-        import uuid as _uuid
-        s3_parent = f"ppt/unknown/{_uuid.uuid4()}"
+    스프링과 파이썬은 서로 다른 서버일 수 있으므로 로컬 파일 경로를 주고받지 않는다.
+    """
+    from app.core.config import S3_BUCKET_NAME
+    from app.services.s3_service import download_from_s3
 
-    s3_slides_prefix = f"{s3_parent}/slides"
+    ppt_key = resolve_ppt_s3_key(req.pptUrl, S3_BUCKET_NAME)
+    output_prefix = normalize_ppt_output_prefix(req.outputPrefix)
+    s3_slides_prefix = f"{output_prefix}/slides"
 
-    # PPT 파일 S3 업로드 (PPTX → S3 원본 보관)
-    ext = os.path.splitext(ppt_path)[-1].lower()
-    content_type_map = {
-        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        ".ppt":  "application/vnd.ms-powerpoint",
-        ".pdf":  "application/pdf",
-    }
-    ppt_content_type = content_type_map.get(ext, "application/octet-stream")
-    ppt_s3_key = f"{s3_parent}/file{ext}"
-    ppt_s3_url = upload_to_s3(ppt_path, ppt_s3_key, content_type=ppt_content_type)
+    work_dir = tempfile.mkdtemp(prefix="speakfit-ppt-")
+    try:
+        ext = os.path.splitext(ppt_key)[-1].lower() or ".pptx"
+        ppt_path = os.path.join(work_dir, f"source{ext}")
+        download_from_s3(ppt_key, ppt_path)
 
-    # 슬라이드 변환 및 S3 업로드
-    if ppt_path.lower().endswith(".pdf"):
-        slides = render_pdf_to_images(ppt_path, s3_slides_prefix)
-    else:
-        pdf_path, temp_dir = convert_ppt_to_pdf(ppt_path)
-        try:
-            slides = render_pdf_to_images(pdf_path, s3_slides_prefix)
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+        if ext == ".pdf":
+            slides = render_pdf_to_images(ppt_path, s3_slides_prefix)
+        else:
+            pdf_path, temp_dir = convert_ppt_to_pdf(ppt_path)
+            try:
+                slides = render_pdf_to_images(pdf_path, s3_slides_prefix)
+            finally:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
     return {
-        "sourcePptUrl": ppt_s3_url,
+        "sourcePptUrl": req.pptUrl,
         "totalSlides": len(slides),
-        "slides": slides,   # imageUrl이 이미 S3 URL
+        "slides": slides,   # imageUrl 은 S3 URL
     }
 
 @router.websocket("/ws/practice/{practice_id}")
