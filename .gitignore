@@ -47,6 +47,7 @@ secrets/
 
 # 파이썬 가상환경
 python-analysis-server/venv/
+python-analysis-server/.venv/
 
 #파이썬 컴파일 캐시
 __pycache__/
@@ -60,3 +61,6 @@ logs/
 *.log
 *.omc
 /작업계획.md
+
+# 개발 중 주고받는 패치 파일
+*.patch
