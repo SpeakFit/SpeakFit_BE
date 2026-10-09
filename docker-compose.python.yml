@@ -1,0 +1,22 @@
+# 파이썬 분석 서버(EC2 #2)용 compose
+# - 보안 그룹에서 5000 포트는 Spring 서버의 보안 그룹에서 오는 요청만 허용한다. (인터넷에 열지 않는다)
+# - 브라우저의 실시간 WebSocket 은 Spring 서버의 nginx 가 이 서버의 사설 IP:5000 으로 중계한다.
+#
+# 실행:  docker compose -f docker-compose.python.yml up -d
+#   ANALYSIS_IMAGE=<계정>.dkr.ecr.ap-northeast-2.amazonaws.com/speakfit-analysis:latest \
+#     docker compose -f docker-compose.python.yml up -d
+services:
+  analysis:
+    image: ${ANALYSIS_IMAGE:-speakfit-analysis:latest}
+    build: ./python-analysis-server
+    container_name: speakfit-analysis
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env.python
+    restart: unless-stopped
+    # Google Cloud STT 서비스 계정 키(JSON)는 이미지에 넣지 않고 서버 파일을 읽기 전용으로 마운트한다.
+    # 키를 받은 뒤 아래 두 줄의 주석을 풀고, .env.python 에 GOOGLE_STT_ENABLED=true 와
+    # GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/google-stt.json 을 추가한다.
+    # volumes:
+    #   - /opt/speakfit/secrets/google-stt.json:/run/secrets/google-stt.json:ro

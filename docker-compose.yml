@@ -1,13 +1,20 @@
+# Spring 백엔드 서버(EC2 #1)용 compose
+# - nginx 는 호스트에 설치되어 있고(docs/deploy-https.md), 443 → 이 컨테이너(127.0.0.1:8080) 로 프록시한다.
+# - 파이썬 분석 서버는 별도 서버(docker-compose.python.yml)에서 실행한다.
+#
+# 실행:  docker compose up -d
+# 이미지: 기본은 로컬 빌드. ECR 이미지를 쓰려면 BACKEND_IMAGE 를 지정한다.
+#   BACKEND_IMAGE=<계정>.dkr.ecr.ap-northeast-2.amazonaws.com/speakfit-backend:latest docker compose up -d
 services:
   backend:
+    image: ${BACKEND_IMAGE:-speakfit-backend:latest}
     build: .
     container_name: speakfit-backend
+    # 외부에서 직접 접근하지 못하게 루프백에만 연다. (외부 요청은 nginx 443 으로만 받는다)
     ports:
-      - "8080:8080"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "127.0.0.1:8080:8080"
     env_file:
       - .env
     environment:
       SPRING_PROFILES_ACTIVE: prod
-    restart: always
+    restart: unless-stopped
