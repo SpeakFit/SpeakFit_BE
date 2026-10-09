@@ -1,5 +1,15 @@
+# 이미지 빌드 컨텍스트에서 제외 (비밀 값, 빌드 산출물, 에디터 설정)
 .git
 .gradle
+build
 .idea
 *.iml
 .vscode
+.env
+.env.*
+!.env.*.example
+uploads
+python-analysis-server
+docs
+*.md
+*.patch
