@@ -69,6 +69,11 @@ CREATE DATABASE speakfit CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 - 스프링이 원본을 S3 에 올리고, 분석 서버(`POST /ppt/convert`)에는 **S3 URL 과 결과 prefix** 만 전달합니다. 분석 서버가 S3 에서 내려받아 변환하므로 두 서버가 같은 디스크를 공유하지 않아도 됩니다.
 - 분석 서버에는 LibreOffice(`soffice`)가 필요하고, 스프링과 같은 버킷에 접근할 수 있어야 합니다. (`AWS_S3_BUCKET`, `AWS_REGION`, 키 또는 IAM 역할)
 
+### 파일 URL (서명 URL)
+- S3 버킷은 **비공개**입니다. 슬라이드 이미지, PPT 원본, 연습 녹음, 스타일 샘플 음원 URL 은 API 응답에서 **유효 시간이 있는 서명 URL** 로 바뀌어 내려갑니다. (DB 에는 원래 URL/키가 그대로 저장됩니다.)
+- 서명 URL 은 만료됩니다. 기본 1시간이며 `S3_PRESIGN_EXPIRE_SECONDS` 로 바꿀 수 있습니다. 화면을 오래 열어 두면 만료되므로, 프론트는 403 이 나면 같은 API 를 다시 호출해 새 URL 을 받아야 합니다.
+- 이 버킷이 아닌 외부 URL 은 서명하지 않고 그대로 둡니다.
+
 ### 3) Create .env File
 
 `.env.spring.example` 을 프로젝트 루트에 `.env` 로 복사해서 값을 채웁니다. (`.env` 는 Git 에 올라가지 않습니다.)
