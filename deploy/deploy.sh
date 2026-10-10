@@ -6,7 +6,7 @@
 #   ./deploy.sh python            # 파이썬 서버(EC2 #2): speakfit-analysis:latest
 #   ./deploy.sh spring <태그>     # 특정 태그(커밋 해시)로 배포 / 롤백
 #
-# 필요: docker + compose 플러그인, aws CLI, 서버 IAM 역할에 ECR 읽기 권한 (docs/aws-ci-cd-setup.md)
+# 필요: docker + compose 플러그인, aws CLI, 서버 IAM 역할에 ECR 읽기 권한
 set -euo pipefail
 
 role="${1:?사용법: ./deploy.sh <spring|python> [태그]}"
