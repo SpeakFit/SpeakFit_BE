@@ -1,0 +1,155 @@
+name: CI
+
+# PR/푸시: 테스트 + (바뀐 경우) Docker 이미지 빌드 확인
+# main 푸시: 위에 더해 ECR 로 이미지 업로드 (AWS_ROLE_ARN 변수가 설정된 경우에만)
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-test:
+    name: 백엔드 테스트 (MySQL 8)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci
+          MYSQL_DATABASE: speakfit
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      # 컨텍스트 로딩 테스트가 필요로 하는 값. 실제 운영 값이 아니다.
+      SPRING_PROFILES_ACTIVE: local
+      DB_HOST: 127.0.0.1
+      DB_PORT: "3306"
+      DB_NAME: speakfit
+      DB_USERNAME: root
+      DB_PASSWORD: ci
+      JWT_SECRET: ci-test-secret-ci-test-secret-0123456789
+      AWS_S3_BUCKET: ci-bucket
+      AWS_REGION: ap-northeast-2
+      AWS_ACCESS_KEY: ci
+      AWS_SECRET_KEY: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - name: 테스트 (Flyway 마이그레이션도 MySQL 8 에 적용됨)
+        run: ./gradlew test --no-daemon
+      - name: 실패 시 테스트 리포트 보관
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: build/reports/tests/test
+
+  changes:
+    name: 변경된 서비스 확인
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      analysis: ${{ steps.filter.outputs.analysis }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'src/**'
+              - 'build.gradle'
+              - 'settings.gradle'
+              - 'gradle/**'
+              - 'Dockerfile'
+              - '.dockerignore'
+            analysis:
+              - 'python-analysis-server/**'
+
+  image:
+    name: 이미지 (${{ matrix.name }})
+    needs: [backend-test, changes]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            context: .
+            repository: speakfit-backend
+          - name: analysis
+            context: ./python-analysis-server
+            repository: speakfit-analysis
+    permissions:
+      contents: read
+      id-token: write # GitHub OIDC 로 AWS 역할을 맡기 위해 필요
+    env:
+      IS_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != '' }}
+      CHANGED: ${{ matrix.name == 'backend' && needs.changes.outputs.backend || needs.changes.outputs.analysis }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # main 푸시에서는 항상 두 이미지를 모두 올린다. PR 에서는 바뀐 서비스만 빌드가 되는지 확인한다.
+      - name: 빌드 대상 판단
+        id: gate
+        run: |
+          if [ "$IS_PUSH" = "true" ] || [ "$CHANGED" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: AWS 자격 증명 (OIDC)
+        if: steps.gate.outputs.run == 'true' && env.IS_PUSH == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-northeast-2' }}
+
+      - name: ECR 로그인
+        id: ecr
+        if: steps.gate.outputs.run == 'true' && env.IS_PUSH == 'true'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.gate.outputs.run == 'true'
+
+      - name: 이미지 빌드 (linux/amd64)${{ env.IS_PUSH == 'true' && ' 및 ECR 업로드' || '' }}
+        if: steps.gate.outputs.run == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64
+          push: ${{ env.IS_PUSH == 'true' }}
+          tags: |
+            ${{ steps.ecr.outputs.registry || 'local' }}/${{ matrix.repository }}:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry || 'local' }}/${{ matrix.repository }}:latest
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: 요약
+        if: steps.gate.outputs.run == 'true' && env.IS_PUSH == 'true'
+        run: |
+          echo "### ${{ matrix.repository }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 태그: \`${{ github.sha }}\`, \`latest\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 서버 배포: \`./deploy.sh ${{ matrix.name == 'backend' && 'spring' || 'python' }} ${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
