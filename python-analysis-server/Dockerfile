@@ -31,7 +31,9 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 # ffmpeg(static-ffmpeg)는 첫 import 때 인터넷에서 내려받으므로, 실행 시점이 아니라 빌드 시점에 받아 둔다.
-RUN python -c "import static_ffmpeg; static_ffmpeg.add_paths()"
+# static-ffmpeg 는 실행 때마다 같은 폴더에 lock.file 을 만들기 때문에, 실행 사용자(app)가 쓸 수 있게 소유자를 바꿔 둔다.
+RUN python -c "import static_ffmpeg; static_ffmpeg.add_paths()" \
+    && chown -R app:app "$(python -c 'import os, static_ffmpeg; print(os.path.dirname(static_ffmpeg.__file__))')"
 
 COPY app ./app
 
