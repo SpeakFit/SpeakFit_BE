@@ -88,7 +88,7 @@ Python 분석 서버의 환경변수는 `.env.python.example` 을 참고합니�
 |---|---|
 | DB | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD` |
 | JWT | `JWT_SECRET`(32바이트 이상), `JWT_ACCESS_EXP_SECONDS`, `JWT_REFRESH_EXP_SECONDS` |
-| AWS | `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `AWS_S3_BUCKET`, `AWS_REGION` |
+| AWS | `AWS_S3_BUCKET`, `AWS_REGION` (필수), `AWS_ACCESS_KEY`, `AWS_SECRET_KEY` (로컬 개발용. 운영 EC2 에서는 비워 두고 IAM 역할 사용) |
 | 주소 | `CORS_ALLOWED_ORIGINS`, `AI_BASE_URL`(백엔드→Python), `WS_BASE_URL`(브라우저→WebSocket) |
 
 > 기존 `LOCAL_DB_URL`, `LOCAL_DB_USERNAME`, `LOCAL_DB_PASSWORD` 는 `DB_*` 로 대체되었습니다. (local 프로파일에서만 한동안 호환)

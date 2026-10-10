@@ -6,12 +6,13 @@ from app.core.config import S3_BUCKET_NAME, S3_REGION, AWS_ACCESS_KEY_ID_VAL, AW
 
 
 def get_s3_client():
-    return boto3.client(
-        "s3",
-        region_name=S3_REGION,
-        aws_access_key_id=AWS_ACCESS_KEY_ID_VAL,
-        aws_secret_access_key=AWS_SECRET_ACCESS_KEY_VAL,
-    )
+    """S3 클라이언트. 액세스 키가 둘 다 설정되면 그 키를 쓰고(로컬 개발),
+    아니면 boto3 기본 체인(환경변수, 프로파일, EC2 의 IAM 역할)으로 자격 증명을 찾는다."""
+    kwargs = {"region_name": S3_REGION}
+    if AWS_ACCESS_KEY_ID_VAL and AWS_SECRET_ACCESS_KEY_VAL:
+        kwargs["aws_access_key_id"] = AWS_ACCESS_KEY_ID_VAL
+        kwargs["aws_secret_access_key"] = AWS_SECRET_ACCESS_KEY_VAL
+    return boto3.client("s3", **kwargs)
 
 
 def upload_to_s3(local_path: str, s3_key: str, content_type: str = "image/png") -> str:
