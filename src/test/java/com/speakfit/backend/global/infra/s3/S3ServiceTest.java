@@ -8,40 +8,38 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.DeleteObjectsRequest;
-import com.amazonaws.services.s3.model.ListObjectsV2Request;
-import com.amazonaws.services.s3.model.ListObjectsV2Result;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
+import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 class S3ServiceTest {
 
     private static final String BUCKET = "speakfit-prod-1";
 
-    private final AmazonS3 amazonS3 = mock(AmazonS3.class);
+    private final S3Client s3Client = mock(S3Client.class);
     private S3Service service;
 
     @BeforeEach
     void setUp() {
-        service = new S3Service(amazonS3);
+        service = new S3Service(s3Client, mock(S3Presigner.class));
         ReflectionTestUtils.setField(service, "bucket", BUCKET);
     }
 
-    private static ListObjectsV2Result page(boolean truncated, String token, String... keys) {
-        ListObjectsV2Result result = new ListObjectsV2Result();
-        for (String key : keys) {
-            S3ObjectSummary summary = new S3ObjectSummary();
-            summary.setKey(key);
-            result.getObjectSummaries().add(summary);
-        }
-        result.setTruncated(truncated);
-        result.setNextContinuationToken(token);
-        return result;
+    private static ListObjectsV2Response page(boolean truncated, String token, String... keys) {
+        return ListObjectsV2Response.builder()
+                .contents(java.util.Arrays.stream(keys).map(key -> S3Object.builder().key(key).build()).toList())
+                .isTruncated(truncated)
+                .nextContinuationToken(token)
+                .build();
     }
 
     @Test
@@ -68,32 +66,34 @@ class S3ServiceTest {
 
     @Test
     void prefix_아래_오브젝트를_페이지_단위로_모두_삭제한다() {
-        when(amazonS3.listObjectsV2(any(ListObjectsV2Request.class)))
+        when(s3Client.listObjectsV2(any(ListObjectsV2Request.class)))
                 .thenReturn(page(true, "t1", "ppt/10/a", "ppt/10/b"))
                 .thenReturn(page(false, null, "ppt/10/c"));
 
         service.deleteByPrefix("ppt/10");
 
         ArgumentCaptor<ListObjectsV2Request> listCaptor = ArgumentCaptor.forClass(ListObjectsV2Request.class);
-        verify(amazonS3, times(2)).listObjectsV2(listCaptor.capture());
-        // 같은 요청 객체를 재사용하므로 prefix 는 슬래시로 끝나야 다른 대본(ppt/100)을 지우지 않는다
-        assertThat(listCaptor.getAllValues().get(0).getPrefix()).isEqualTo("ppt/10/");
+        verify(s3Client, times(2)).listObjectsV2(listCaptor.capture());
+        // prefix 는 슬래시로 끝나야 다른 대본(ppt/100)을 지우지 않는다
+        assertThat(listCaptor.getAllValues().get(0).prefix()).isEqualTo("ppt/10/");
+        assertThat(listCaptor.getAllValues().get(0).continuationToken()).isNull();
+        assertThat(listCaptor.getAllValues().get(1).continuationToken()).isEqualTo("t1");
 
         ArgumentCaptor<DeleteObjectsRequest> deleteCaptor = ArgumentCaptor.forClass(DeleteObjectsRequest.class);
-        verify(amazonS3, times(2)).deleteObjects(deleteCaptor.capture());
-        assertThat(deleteCaptor.getAllValues().get(0).getKeys()).extracting(DeleteObjectsRequest.KeyVersion::getKey)
+        verify(s3Client, times(2)).deleteObjects(deleteCaptor.capture());
+        assertThat(deleteCaptor.getAllValues().get(0).delete().objects()).extracting(ObjectIdentifier::key)
                 .containsExactly("ppt/10/a", "ppt/10/b");
-        assertThat(deleteCaptor.getAllValues().get(1).getKeys()).extracting(DeleteObjectsRequest.KeyVersion::getKey)
+        assertThat(deleteCaptor.getAllValues().get(1).delete().objects()).extracting(ObjectIdentifier::key)
                 .containsExactly("ppt/10/c");
     }
 
     @Test
     void 지울_것이_없으면_삭제_요청을_보내지_않는다() {
-        when(amazonS3.listObjectsV2(any(ListObjectsV2Request.class))).thenReturn(page(false, null));
+        when(s3Client.listObjectsV2(any(ListObjectsV2Request.class))).thenReturn(page(false, null));
 
         service.deleteByPrefix("ppt/10/attempts/x");
 
-        verify(amazonS3, times(0)).deleteObjects(any(DeleteObjectsRequest.class));
+        verify(s3Client, times(0)).deleteObjects(any(DeleteObjectsRequest.class));
     }
 
     @Test
@@ -101,6 +101,6 @@ class S3ServiceTest {
         assertThatThrownBy(() -> service.deleteByPrefix("")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.deleteByPrefix("/")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.deleteByPrefix(null)).isInstanceOf(IllegalArgumentException.class);
-        verify(amazonS3, times(0)).listObjectsV2(any(ListObjectsV2Request.class));
+        verify(s3Client, times(0)).listObjectsV2(any(ListObjectsV2Request.class));
     }
 }
