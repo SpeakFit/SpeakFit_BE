@@ -56,8 +56,9 @@ dependencies {
 	// WebClient
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'
 
-	// s3
-	implementation 'org.springframework.cloud:spring-cloud-starter-aws:2.2.6.RELEASE'
+	// s3 (AWS SDK v2: EC2 IAM 역할 자격 증명을 Jackson 버전과 무관하게 읽는다)
+	implementation platform('software.amazon.awssdk:bom:2.29.52')
+	implementation 'software.amazon.awssdk:s3'
 }
 
 tasks.named('test') {

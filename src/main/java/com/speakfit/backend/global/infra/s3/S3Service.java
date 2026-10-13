@@ -1,12 +1,5 @@
 package com.speakfit.backend.global.infra.s3;
 
-import com.amazonaws.HttpMethod;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.DeleteObjectsRequest;
-import com.amazonaws.services.s3.model.ListObjectsV2Request;
-import com.amazonaws.services.s3.model.ListObjectsV2Result;
-import com.amazonaws.services.s3.model.ObjectMetadata;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.speakfit.backend.global.apiPayload.exception.CustomException;
 import com.speakfit.backend.global.apiPayload.response.code.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -14,13 +7,22 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
-import java.util.Date;
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -35,7 +37,8 @@ public class S3Service {
             "ppt", "pptx", "pdf"
     );
 
-    private final AmazonS3 amazonS3;
+    private final S3Client s3Client;
+    private final S3Presigner s3Presigner;
 
     @Value("${cloud.aws.s3.bucket}")
     private String bucket;
@@ -54,15 +57,17 @@ public class S3Service {
         String fileName = buildFileName(file.getOriginalFilename());
         String objectKey = normalizeDirectory(directory) + "/" + fileName;
 
-        ObjectMetadata metadata = new ObjectMetadata();
-        metadata.setContentLength(file.getSize());
+        PutObjectRequest.Builder request = PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(objectKey)
+                .contentLength(file.getSize());
         if (file.getContentType() != null && !file.getContentType().isBlank()) {
-            metadata.setContentType(file.getContentType());
+            request.contentType(file.getContentType());
         }
 
-        amazonS3.putObject(bucket, objectKey, file.getInputStream(), metadata);
+        s3Client.putObject(request.build(), RequestBody.fromInputStream(file.getInputStream(), file.getSize()));
 
-        return amazonS3.getUrl(bucket, objectKey).toString();
+        return s3Client.utilities().getUrl(b -> b.bucket(bucket).key(objectKey)).toString();
     }
 
     /**
@@ -114,8 +119,11 @@ public class S3Service {
         }
 
         try {
-            Date expiration = new Date(System.currentTimeMillis() + presignExpireSeconds * 1000);
-            return amazonS3.generatePresignedUrl(bucket, key, expiration, HttpMethod.GET).toString();
+            return s3Presigner.presignGetObject(r -> r
+                    .signatureDuration(Duration.ofSeconds(presignExpireSeconds))
+                    .getObjectRequest(g -> g.bucket(bucket).key(key)))
+                    .url()
+                    .toString();
         } catch (Exception e) {
             log.warn("S3 서명 URL 생성 실패 - key: {}", key, e);
             return urlOrKey;
@@ -146,21 +154,25 @@ public class S3Service {
             normalized = normalized + "/";
         }
 
-        ListObjectsV2Request request = new ListObjectsV2Request()
-                .withBucketName(bucket)
-                .withPrefix(normalized);
-        ListObjectsV2Result result;
+        ListObjectsV2Request.Builder request = ListObjectsV2Request.builder()
+                .bucket(bucket)
+                .prefix(normalized);
+        String continuationToken = null;
+        ListObjectsV2Response result;
         do {
-            result = amazonS3.listObjectsV2(request);
-            List<DeleteObjectsRequest.KeyVersion> keys = result.getObjectSummaries().stream()
-                    .map(S3ObjectSummary::getKey)
-                    .map(DeleteObjectsRequest.KeyVersion::new)
+            result = s3Client.listObjectsV2(request.continuationToken(continuationToken).build());
+            List<ObjectIdentifier> keys = result.contents().stream()
+                    .map(S3Object::key)
+                    .map(key -> ObjectIdentifier.builder().key(key).build())
                     .toList();
             if (!keys.isEmpty()) {
-                amazonS3.deleteObjects(new DeleteObjectsRequest(bucket).withKeys(keys).withQuiet(true));
+                s3Client.deleteObjects(DeleteObjectsRequest.builder()
+                        .bucket(bucket)
+                        .delete(d -> d.objects(keys).quiet(true))
+                        .build());
             }
-            request.setContinuationToken(result.getNextContinuationToken());
-        } while (result.isTruncated());
+            continuationToken = result.nextContinuationToken();
+        } while (Boolean.TRUE.equals(result.isTruncated()));
     }
 
     private void validateFile(MultipartFile file) {
